@@ -356,6 +356,12 @@ function Admin({ data, save, reload, onOut }) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click();
   };
 
+  const expWorkers = () => {
+    let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;PIN;PREU/HORA\n';
+    sortedWorkers.forEach(w => { c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + w.pin + ';' + w.rate + '\n'; });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'treballadors.csv'; a.click();
+  };
+
   const del = async (id) => { await supabase.from('entries').delete().eq('id', id); await reload(); setDelId(null); };
   const upd = async (id) => {
     setSaving(true);
@@ -392,7 +398,7 @@ function Admin({ data, save, reload, onOut }) {
               <button onClick={() => setBy('worker')} className={`flex-1 py-2 rounded text-sm ${by === 'worker' ? 'bg-gray-700 text-white' : 'bg-gray-200'}`}>Treballador</button>
               <button onClick={() => setBy('lloc')} className={`flex-1 py-2 rounded text-sm ${by === 'lloc' ? 'bg-gray-700 text-white' : 'bg-gray-200'}`}>Lloc</button>
             </div>
-            <button onClick={exp} className="w-full bg-green-600 text-white py-3 rounded-lg">📥 CSV</button>
+            <button onClick={exp} className="w-full bg-green-600 text-white py-3 rounded-lg">📥 CSV Hores</button>
           </div>
           {by === 'worker' && byW.map(({ w, ent }) => (
             <div key={w.id} className="bg-white rounded-lg shadow">
@@ -460,6 +466,7 @@ function Admin({ data, save, reload, onOut }) {
               <div className="w-24"><label className="text-xs text-gray-500">€/hora</label><input type="number" value={nw.r} onChange={e => setNw({ ...nw, r: e.target.value })} className="w-full p-3 border rounded" /></div>
               <button onClick={addW} disabled={saving} className="flex-1 bg-green-600 text-white p-3 rounded">{saving ? 'Creant...' : 'Crear'}</button>
             </div>
+            <button onClick={expWorkers} className="w-full bg-blue-600 text-white py-3 rounded-lg">📥 Descarregar Treballadors (CSV)</button>
           </div>
           <div className="bg-white rounded-lg shadow divide-y">
             {sortedWorkers.map(w => (

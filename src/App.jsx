@@ -16,6 +16,17 @@ const sortWorkers = (workers) => {
   });
 };
 
+const getMonday = (d, offset) => {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1) + (offset * 7);
+  const monday = new Date(date.setDate(diff));
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+};
+
+const fmt = d => d.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' });
+
 export default function App() {
   const [view, setView] = useState('menu');
   const [user, setUser] = useState(null);
@@ -111,6 +122,7 @@ function Pin({ data, onBack, onOk }) {
 
 function Worker({ user, data, save, reload, onOut }) {
   const [mode, setMode] = useState('list');
+  const [off, setOff] = useState(0);
   const [form, setForm] = useState({ date: '', locId: '', shift: '', job: '', h1: '', h2: '', h3: '', h4: '', note: '', car: false, km: '' });
   const [delId, setDelId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -118,10 +130,23 @@ function Worker({ user, data, save, reload, onOut }) {
   const jobs = ['Cuina', 'Sala', 'Neteja', 'Producció', 'Muntatge'];
   const rests = data.locations.filter(l => l.type === 'restaurant');
   const cats = data.locations.filter(l => l.type === 'catering' && l.active);
-  const mine = data.entries.filter(e => e.odId === user.id).sort((a, b) => b.date.localeCompare(a.date));
   const loc = data.locations.find(l => l.id === form.locId);
-  const totalH = mine.reduce((s, e) => s + (e.hours || 0), 0);
   const shifts = { migdia: 'Migdia', vespre: 'Vespre', both: 'Migdia+Vespre', extra: 'Hores extres' };
+
+  const now = new Date();
+  const ws = getMonday(now, off);
+  const we = new Date(ws);
+  we.setDate(ws.getDate() + 6);
+  we.setHours(23, 59, 59, 999);
+
+  const mine = data.entries.filter(e => {
+    if (e.odId !== user.id) return false;
+    const [year, month, day] = e.date.split('-').map(Number);
+    const d = new Date(year, month - 1, day, 12, 0, 0);
+    return d >= ws && d <= we;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  const totalH = mine.reduce((s, e) => s + (e.hours || 0), 0);
 
   const getH = () => {
     if (form.shift === 'both') {
@@ -181,16 +206,21 @@ function Worker({ user, data, save, reload, onOut }) {
       <div className="p-3 max-w-md mx-auto">
         {mode === 'list' && <>
           <div className="bg-white rounded-lg shadow p-4 mb-3">
-            <p className="text-gray-500 text-sm">Total hores</p>
-            <p className="text-3xl font-bold text-green-600 mb-3">{totalH}h</p>
+            <div className="flex justify-between items-center mb-3">
+              <button onClick={() => setOff(off - 1)} className="px-3 py-1 bg-gray-200 rounded">←</button>
+              <span className="font-bold text-sm">{fmt(ws)} - {fmt(we)}</span>
+              <button onClick={() => setOff(off + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button>
+            </div>
+            <p className="text-gray-500 text-sm text-center">Total hores setmana</p>
+            <p className="text-3xl font-bold text-green-600 text-center mb-3">{totalH}h</p>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => { setMode('rest'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-green-600 text-white p-3 rounded-lg">+ Restaurant</button>
               <button onClick={() => { setMode('cat'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-blue-600 text-white p-3 rounded-lg">+ Càtering</button>
             </div>
           </div>
           <div className="bg-white rounded-lg shadow">
-            <h2 className="p-3 font-bold border-b">Historial</h2>
-            {mine.length === 0 ? <p className="p-4 text-gray-400">Sense entrades</p> : mine.map(e => (
+            <h2 className="p-3 font-bold border-b">Historial setmana</h2>
+            {mine.length === 0 ? <p className="p-4 text-gray-400">Sense entrades aquesta setmana</p> : mine.map(e => (
               <div key={e.id} className="p-3 border-b">
                 {delId === e.id ? (
                   <div className="bg-red-50 p-3 rounded flex gap-2">
@@ -301,16 +331,6 @@ function Admin({ data, save, reload, onOut }) {
   const [saving, setSaving] = useState(false);
 
   const now = new Date();
-  
-  const getMonday = (d, offset) => {
-    const date = new Date(d);
-    const day = date.getDay();
-    const diff = date.getDate() - day + (day === 0 ? -6 : 1) + (offset * 7);
-    const monday = new Date(date.setDate(diff));
-    monday.setHours(0, 0, 0, 0);
-    return monday;
-  };
-  
   const ws = getMonday(now, off);
   const we = new Date(ws);
   we.setDate(ws.getDate() + 6);
@@ -332,7 +352,6 @@ function Admin({ data, save, reload, onOut }) {
   });
   
   const calc = e => (e.total || 0) + (e.kmCost || 0) + (e.plus || 0);
-  const fmt = d => d.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' });
 
   const sortedWorkers = sortWorkers(data.workers);
   const byW = sortedWorkers.map(w => ({ w, ent: ents.filter(e => e.odId === w.id) })).filter(x => x.ent.length);

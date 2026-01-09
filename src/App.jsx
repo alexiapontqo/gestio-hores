@@ -202,7 +202,7 @@ function Worker({ user, data, save, reload, onOut }) {
                     <div>
                       <p className="font-medium">{e.locName}</p>
                       <p className="text-sm text-gray-500">{e.date} · {e.job}</p>
-                      <p className="text-xs text-gray-400">{e.horari || (e.horaIn + '-' + e.horaOut)} ({e.hours}h)</p>
+                      <p className="text-xs text-gray-400">{e.horari || (e.horaIn + '-' + e.horaOut)}</p>
                       {e.shift && <p className="text-xs text-blue-600">{shifts[e.shift]}</p>}
                       {e.km > 0 && <p className="text-xs text-gray-400">🚗 {e.km}km</p>}
                       {e.note && <p className="text-xs text-purple-600">📝 {e.note}</p>}
@@ -228,7 +228,7 @@ function Worker({ user, data, save, reload, onOut }) {
             {form.locId && <div className="grid grid-cols-2 gap-2">
               {['migdia', 'vespre', 'both', 'extra'].map(s => (
                 <button key={s} onClick={() => setForm({ ...form, shift: s, h3: '', h4: '' })} className={`p-2 rounded border text-sm ${form.shift === s ? 'bg-green-600 text-white' : ''}`}>
-                  {shifts[s]}{s !== 'extra' && loc?.prices && <span className="block text-xs">{loc.prices[s]}€</span>}
+                  {shifts[s]}
                 </button>
               ))}
             </div>}
@@ -246,7 +246,6 @@ function Worker({ user, data, save, reload, onOut }) {
                 <div><label className="text-xs text-gray-500">Sortida vespre</label><input type="time" value={form.h4} onChange={e => setForm({ ...form, h4: e.target.value })} className="w-full p-3 border rounded-lg" /></div>
               </div>
             )}
-            {hrs > 0 && <p className="bg-green-100 p-2 rounded text-center">Total: {hrs}h</p>}
             <input placeholder="Nota (opcional)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} className="w-full p-3 border rounded-lg" />
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setMode('list')} className="p-3 bg-gray-200 rounded-lg">Cancel·lar</button>
@@ -270,7 +269,6 @@ function Worker({ user, data, save, reload, onOut }) {
               <div><label className="text-xs text-gray-500">Sortida</label><input type="time" value={form.h1} onChange={e => setForm({ ...form, h1: e.target.value })} className="w-full p-3 border rounded-lg" /></div>
               <div><label className="text-xs text-gray-500">Tornada</label><input type="time" value={form.h2} onChange={e => setForm({ ...form, h2: e.target.value })} className="w-full p-3 border rounded-lg" /></div>
             </div>
-            {hrs > 0 && <p className="bg-blue-100 p-2 rounded text-center">Total: {hrs}h</p>}
             <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
               <input type="checkbox" checked={form.car} onChange={e => setForm({ ...form, car: e.target.checked })} className="w-5 h-5" />
               <span>Cotxe propi</span>
@@ -304,7 +302,6 @@ function Admin({ data, save, reload, onOut }) {
 
   const now = new Date();
   
-  // Càlcul correcte de la setmana (dilluns a diumenge)
   const getMonday = (d, offset) => {
     const date = new Date(d);
     const day = date.getDay();
@@ -334,7 +331,7 @@ function Admin({ data, save, reload, onOut }) {
     }
   });
   
-  const calc = e => (e.hours * (e.customRate || e.rate)) + (e.kmCost || 0) + (e.plus || 0);
+  const calc = e => (e.total || 0) + (e.kmCost || 0) + (e.plus || 0);
   const fmt = d => d.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' });
 
   const sortedWorkers = sortWorkers(data.workers);
@@ -376,8 +373,11 @@ function Admin({ data, save, reload, onOut }) {
   const delLoc = async (id) => { await supabase.from('locations').delete().eq('id', id); await reload(); };
 
   const exp = () => {
-    let c = '\uFEFF' + 'LLOC;NOM;DATA;HORES;TOTAL\n';
-    ents.forEach(e => { c += e.locName + ';' + e.name + ';' + e.date + ';' + e.hours + ';' + calc(e).toFixed(2) + '\n'; });
+    let c = '\uFEFF' + 'LLOC;NOM;DATA;HORES;TOTAL;€/H\n';
+    ents.forEach(e => { 
+      const eurH = e.hours > 0 ? (e.total / e.hours).toFixed(2) : '0';
+      c += e.locName + ';' + e.name + ';' + e.date + ';' + e.hours + ';' + calc(e).toFixed(2) + ';' + eurH + '\n'; 
+    });
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click();
   };
 
@@ -390,7 +390,7 @@ function Admin({ data, save, reload, onOut }) {
   const del = async (id) => { await supabase.from('entries').delete().eq('id', id); await reload(); setDelId(null); };
   const upd = async (id) => {
     setSaving(true);
-    await supabase.from('entries').update({ hours: editV.h, custom_rate: editV.r, plus: editV.p }).eq('id', id);
+    await supabase.from('entries').update({ total: editV.t, hours: editV.h, plus: editV.p }).eq('id', id);
     await reload();
     setEditId(null);
     setSaving(false);
@@ -441,8 +441,8 @@ function Admin({ data, save, reload, onOut }) {
                   ) : editId === e.id ? (
                     <div className="space-y-2">
                       <div className="grid grid-cols-3 gap-2">
-                        <div><label className="text-xs">Hores</label><input type="number" value={editV.h} onChange={x => setEditV({ ...editV, h: +x.target.value })} className="w-full p-2 border rounded" /></div>
-                        <div><label className="text-xs">€/h</label><input type="number" value={editV.r} onChange={x => setEditV({ ...editV, r: +x.target.value })} className="w-full p-2 border rounded" /></div>
+                        <div><label className="text-xs">Total €</label><input type="number" value={editV.t} onChange={x => setEditV({ ...editV, t: +x.target.value })} className="w-full p-2 border rounded" /></div>
+                        <div><label className="text-xs">Hores</label><input type="number" step="0.1" value={editV.h} onChange={x => setEditV({ ...editV, h: +x.target.value })} className="w-full p-2 border rounded" /></div>
                         <div><label className="text-xs">Plus</label><input type="number" value={editV.p} onChange={x => setEditV({ ...editV, p: +x.target.value })} className="w-full p-2 border rounded" /></div>
                       </div>
                       <div className="flex gap-2">
@@ -452,10 +452,14 @@ function Admin({ data, save, reload, onOut }) {
                     </div>
                   ) : (
                     <div className="flex justify-between">
-                      <div><p className="font-medium">{e.locName}</p><p className="text-sm text-gray-500">{e.date} · {e.hours}h</p></div>
+                      <div>
+                        <p className="font-medium">{e.locName}</p>
+                        <p className="text-sm text-gray-500">{e.date} · {e.horari || (e.horaIn + '-' + e.horaOut)}</p>
+                        <p className="text-xs text-gray-400">{e.hours}h · {e.hours > 0 ? (e.total / e.hours).toFixed(2) : 0}€/h</p>
+                      </div>
                       <div className="text-right">
-                        <p className="font-bold">{calc(e).toFixed(2)}€</p>
-                        <button onClick={() => { setEditId(e.id); setEditV({ h: e.hours, r: e.customRate || e.rate, p: e.plus || 0 }); }} className="text-blue-500 text-xs mr-1">Editar</button>
+                        <p className="font-bold text-green-600">{calc(e).toFixed(2)}€</p>
+                        <button onClick={() => { setEditId(e.id); setEditV({ t: e.total || 0, h: e.hours, p: e.plus || 0 }); }} className="text-blue-500 text-xs mr-1">Editar</button>
                         <button onClick={() => setDelId(e.id)} className="text-red-500 text-xs">Elim</button>
                       </div>
                     </div>
@@ -472,8 +476,12 @@ function Admin({ data, save, reload, onOut }) {
               </div>
               {ent.map(e => (
                 <div key={e.id} className="p-3 border-b flex justify-between">
-                  <div><p className="font-medium">{e.name}</p><p className="text-sm text-gray-500">{e.date} · {e.hours}h</p></div>
-                  <p className="font-bold">{calc(e).toFixed(2)}€</p>
+                  <div>
+                    <p className="font-medium">{e.name}</p>
+                    <p className="text-sm text-gray-500">{e.date} · {e.hours}h</p>
+                    <p className="text-xs text-gray-400">{e.hours > 0 ? (e.total / e.hours).toFixed(2) : 0}€/h</p>
+                  </div>
+                  <p className="font-bold text-green-600">{calc(e).toFixed(2)}€</p>
                 </div>
               ))}
             </div>

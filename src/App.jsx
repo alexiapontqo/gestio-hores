@@ -303,12 +303,37 @@ function Admin({ data, save, reload, onOut }) {
   const [saving, setSaving] = useState(false);
 
   const now = new Date();
-  const ws = new Date(now); ws.setDate(now.getDate() - now.getDay() + 1 + off * 7);
-  const we = new Date(ws); we.setDate(ws.getDate() + 6);
+  
+  // Càlcul correcte de la setmana (dilluns a diumenge)
+  const getMonday = (d, offset) => {
+    const date = new Date(d);
+    const day = date.getDay();
+    const diff = date.getDate() - day + (day === 0 ? -6 : 1) + (offset * 7);
+    const monday = new Date(date.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  };
+  
+  const ws = getMonday(now, off);
+  const we = new Date(ws);
+  we.setDate(ws.getDate() + 6);
+  we.setHours(23, 59, 59, 999);
+  
   const ms = new Date(now.getFullYear(), now.getMonth() + off, 1);
+  ms.setHours(0, 0, 0, 0);
   const me = new Date(now.getFullYear(), now.getMonth() + off + 1, 0);
+  me.setHours(23, 59, 59, 999);
 
-  const ents = data.entries.filter(e => { const d = new Date(e.date); return period === 'setmana' ? d >= ws && d <= we : d >= ms && d <= me; });
+  const ents = data.entries.filter(e => {
+    const [year, month, day] = e.date.split('-').map(Number);
+    const d = new Date(year, month - 1, day, 12, 0, 0);
+    if (period === 'setmana') {
+      return d >= ws && d <= we;
+    } else {
+      return d >= ms && d <= me;
+    }
+  });
+  
   const calc = e => (e.hours * (e.customRate || e.rate)) + (e.kmCost || 0) + (e.plus || 0);
   const fmt = d => d.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' });
 

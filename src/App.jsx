@@ -6,6 +6,8 @@ const supabase = createClient(
   'sb_publishable_F3IZ0QQPqDdnoZE8zEHz9g_2kDZ-1yd'
 );
 
+const ADMIN_PASSWORD = '15ous';
+
 const sortWorkers = (workers) => {
   return [...workers].sort((a, b) => {
     const nameA = `${a.name} ${a.surname1} ${a.surname2 || ''}`.trim();
@@ -48,7 +50,8 @@ export default function App() {
   const save = async (newData) => { setData(newData); };
 
   if (loading) return <div className="p-8 text-center">Carregant...</div>;
-  if (view === 'menu') return <Menu onWorker={() => setView('pin')} onAdmin={() => setView('admin')} />;
+  if (view === 'menu') return <Menu onWorker={() => setView('pin')} onAdmin={() => setView('adminLogin')} />;
+  if (view === 'adminLogin') return <AdminLogin onBack={() => setView('menu')} onOk={() => setView('admin')} />;
   if (view === 'pin') return <Pin data={data} onBack={() => setView('menu')} onOk={w => { setUser(w); setView('worker'); }} />;
   if (view === 'worker') return <Worker user={user} data={data} save={save} reload={loadData} onOut={() => { setUser(null); setView('menu'); }} />;
   return <Admin data={data} save={save} reload={loadData} onOut={() => setView('menu')} />;
@@ -61,6 +64,26 @@ function Menu({ onWorker, onAdmin }) {
         <h1 className="text-xl font-bold mb-6">Gestió d'Hores</h1>
         <button onClick={onWorker} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold mb-3">Treballador</button>
         <button onClick={onAdmin} className="w-full bg-gray-700 text-white py-4 rounded-lg font-bold">Administrador</button>
+      </div>
+    </div>
+  );
+}
+
+function AdminLogin({ onBack, onOk }) {
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const go = () => {
+    if (pass === ADMIN_PASSWORD) onOk();
+    else { setErr('Contrasenya incorrecta'); setPass(''); }
+  };
+  return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow p-6 w-full max-w-xs">
+        <button onClick={onBack} className="text-gray-500 mb-4">← Tornar</button>
+        <h1 className="text-xl font-bold text-center mb-4">Admin</h1>
+        <input type="password" placeholder="Contrasenya" value={pass} onChange={e => { setPass(e.target.value); setErr(''); }} className="w-full p-4 border-2 rounded-lg text-center text-xl mb-3" />
+        {err && <p className="text-red-500 text-center mb-3">{err}</p>}
+        <button onClick={go} className="w-full bg-gray-700 text-white py-4 rounded-lg font-bold">Entrar</button>
       </div>
     </div>
   );

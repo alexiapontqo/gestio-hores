@@ -28,21 +28,32 @@ const getMonday = (d, offset) => {
 const fmt = d => d.toLocaleDateString('ca-ES', { day: 'numeric', month: 'short' });
 const fmtDate = dateStr => dateStr.split('-').reverse().join('/');
 
+const getDaysInMonth = (year, month) => {
+  const days = [];
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startPadding = (firstDay.getDay() + 6) % 7;
+  for (let i = 0; i < startPadding; i++) days.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) days.push(d);
+  return days;
+};
+
 export default function App() {
   const [view, setView] = useState('menu');
   const [user, setUser] = useState(null);
-  const [data, setData] = useState({ workers: [], locations: [], entries: [], payments: [], nextPin: 1041 });
+  const [data, setData] = useState({ workers: [], locations: [], entries: [], payments: [], availability: [], nextPin: 1041 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
-    const [w, l, e, p, c] = await Promise.all([
+    const [w, l, e, p, a, c] = await Promise.all([
       supabase.from('workers').select('*'),
       supabase.from('locations').select('*'),
       supabase.from('entries').select('*'),
       supabase.from('payments').select('*'),
+      supabase.from('availability').select('*'),
       supabase.from('config').select('*').eq('key', 'nextPin').single()
     ]);
     setData({
@@ -57,6 +68,7 @@ export default function App() {
         paid: x.paid || false, paidDate: x.paid_date
       })),
       payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount })),
+      availability: (a.data || []).map(x => ({ id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, migdia: x.migdia, vespre: x.vespre })),
       nextPin: c.data ? parseInt(c.data.value) : 1041
     });
     setLoading(false);
@@ -89,8 +101,10 @@ function Pin({ data, onBack, onOk }) {
 }
 
 function Worker({ user, data, reload, onOut }) {
+  const [tab, setTab] = useState('hores');
   const [mode, setMode] = useState('list');
   const [off, setOff] = useState(0);
+  const [monthOff, setMonthOff] = useState(0);
   const [form, setForm] = useState({ date: '', locId: '', shift: '', job: '', h1: '', h2: '', h3: '', h4: '', note: '', car: false, km: '' });
   const [delId, setDelId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -110,13 +124,74 @@ function Worker({ user, data, reload, onOut }) {
   const addCat = async () => { if (!form.date || !form.locId || !form.job || !form.h1 || !form.h2) return alert('Omple tot'); setSaving(true); const km = form.car ? parseFloat(form.km || 0) : 0; await supabase.from('entries').insert([{ id: Date.now() + '', od_id: user.id, name: user.name + ' ' + user.surname1, date: form.date, loc_id: form.locId, loc_name: loc?.name || '', type: 'catering', job: form.job, hora_in: form.h1, hora_out: form.h2, hours: hrs, rate: user.rate, car: form.car, km, km_cost: km * 0.26, total: hrs * user.rate + km * 0.26, note: form.note, paid: false }]); await reload(); setForm({ date: '', locId: '', shift: '', job: '', h1: '', h2: '', h3: '', h4: '', note: '', car: false, km: '' }); setMode('list'); setSaving(false); };
   const del = async (id) => { await supabase.from('entries').delete().eq('id', id); await reload(); setDelId(null); };
 
+  // Availability
+  const calMonth = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);
+  const calDays = getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth());
+  const myAvail = data.availability.filter(a => a.odId === user.id);
+  
+  const getAvail = (day) => {
+    if (!day) return null;
+    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return myAvail.find(a => a.date === dateStr);
+  };
+
+  const toggleAvail = async (day, tipo) => {
+    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const existing = myAvail.find(a => a.date === dateStr);
+    if (existing) {
+      const newVal = tipo === 'migdia' ? !existing.migdia : !existing.vespre;
+      const updates = tipo === 'migdia' ? { migdia: newVal } : { vespre: newVal };
+      await supabase.from('availability').update(updates).eq('id', existing.id);
+    } else {
+      const newAvail = { id: Date.now() + '', worker_id: user.id, worker_name: user.name + ' ' + user.surname1, date: dateStr, migdia: tipo === 'migdia', vespre: tipo === 'vespre' };
+      await supabase.from('availability').insert([newAvail]);
+    }
+    await reload();
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="bg-green-600 text-white p-4 flex justify-between"><span className="font-bold">{user.name} {user.surname1}</span><button onClick={onOut} className="bg-white text-green-600 px-3 py-1 rounded">Sortir</button></div>
       <div className="p-3 max-w-md mx-auto">
-        {mode === 'list' && <><div className="bg-white rounded-lg shadow p-4 mb-3"><div className="flex justify-between items-center mb-3"><button onClick={() => setOff(off - 1)} className="px-3 py-1 bg-gray-200 rounded">←</button><span className="font-bold text-sm">{fmt(ws)} - {fmt(we)}</span><button onClick={() => setOff(off + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button></div><p className="text-gray-500 text-sm text-center">Total hores setmana</p><p className="text-3xl font-bold text-green-600 text-center mb-3">{totalH}h</p><div className="grid grid-cols-2 gap-2"><button onClick={() => { setMode('rest'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-green-600 text-white p-3 rounded-lg">+ Restaurant</button><button onClick={() => { setMode('cat'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-blue-600 text-white p-3 rounded-lg">+ Càtering</button></div></div><div className="bg-white rounded-lg shadow"><h2 className="p-3 font-bold border-b">Historial setmana</h2>{mine.length === 0 ? <p className="p-4 text-gray-400">Sense entrades aquesta setmana</p> : mine.map(e => (<div key={e.id} className="p-3 border-b">{delId === e.id ? (<div className="bg-red-50 p-3 rounded flex gap-2"><button onClick={() => del(e.id)} className="bg-red-500 text-white px-4 py-2 rounded">Sí</button><button onClick={() => setDelId(null)} className="bg-gray-300 px-4 py-2 rounded">No</button></div>) : (<div className="flex justify-between"><div><p className="font-medium">{e.locName}</p><p className="text-sm text-gray-500">{fmtDate(e.date)} · {e.job}</p><p className="text-xs text-gray-400">{e.horari || (e.horaIn + '-' + e.horaOut)}</p>{e.shift && <p className="text-xs text-blue-600">{shifts[e.shift]}</p>}{e.km > 0 && <p className="text-xs text-gray-400">🚗 {e.km}km</p>}{e.note && <p className="text-xs text-purple-600">📝 {e.note}</p>}</div><div className="text-right"><p className="font-bold text-green-600">{e.hours}h</p><button onClick={() => setDelId(e.id)} className="text-red-500 text-sm">Eliminar</button></div></div>)}</div>))}</div></>}
-        {mode === 'rest' && (<div className="bg-white rounded-lg shadow p-4 space-y-3"><h2 className="font-bold">Restaurant</h2><input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full p-3 border rounded-lg" /><select value={form.locId} onChange={e => setForm({ ...form, locId: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Lloc...</option>{rests.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>{form.locId && <div className="grid grid-cols-2 gap-2">{['migdia', 'vespre', 'both', 'extra'].map(s => (<button key={s} onClick={() => setForm({ ...form, shift: s, h3: '', h4: '' })} className={`p-2 rounded border text-sm ${form.shift === s ? 'bg-green-600 text-white' : ''}`}>{shifts[s]}</button>))}</div>}<select value={form.job} onChange={e => setForm({ ...form, job: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Feina...</option>{jobs.map(j => <option key={j} value={j}>{j}</option>)}</select><div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">{form.shift === 'both' ? 'Entrada migdia' : 'Entrada'}</label><input type="time" value={form.h1} onChange={e => setForm({ ...form, h1: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">{form.shift === 'both' ? 'Sortida migdia' : 'Sortida'}</label><input type="time" value={form.h2} onChange={e => setForm({ ...form, h2: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div>{form.shift === 'both' && (<div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">Entrada vespre</label><input type="time" value={form.h3} onChange={e => setForm({ ...form, h3: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">Sortida vespre</label><input type="time" value={form.h4} onChange={e => setForm({ ...form, h4: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div>)}<input placeholder="Nota (opcional)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} className="w-full p-3 border rounded-lg" /><div className="grid grid-cols-2 gap-2"><button onClick={() => setMode('list')} className="p-3 bg-gray-200 rounded-lg">Cancel·lar</button><button onClick={addRest} disabled={saving} className="p-3 bg-green-600 text-white rounded-lg">{saving ? 'Guardant...' : 'Guardar'}</button></div></div>)}
-        {mode === 'cat' && (<div className="bg-white rounded-lg shadow p-4 space-y-3"><h2 className="font-bold">Càtering</h2><input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full p-3 border rounded-lg" /><select value={form.locId} onChange={e => setForm({ ...form, locId: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Càtering...</option>{cats.length === 0 ? <option disabled>No hi ha càterings actius</option> : cats.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select><select value={form.job} onChange={e => setForm({ ...form, job: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Feina...</option>{jobs.map(j => <option key={j} value={j}>{j}</option>)}</select><div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">Sortida</label><input type="time" value={form.h1} onChange={e => setForm({ ...form, h1: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">Tornada</label><input type="time" value={form.h2} onChange={e => setForm({ ...form, h2: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div><label className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg"><input type="checkbox" checked={form.car} onChange={e => setForm({ ...form, car: e.target.checked })} className="w-5 h-5" /><span>Cotxe propi</span></label>{form.car && <input type="number" placeholder="Km" value={form.km} onChange={e => setForm({ ...form, km: e.target.value })} className="w-full p-3 border rounded-lg" />}<input placeholder="Nota (opcional)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} className="w-full p-3 border rounded-lg" /><div className="grid grid-cols-2 gap-2"><button onClick={() => setMode('list')} className="p-3 bg-gray-200 rounded-lg">Cancel·lar</button><button onClick={addCat} disabled={saving} className="p-3 bg-green-600 text-white rounded-lg">{saving ? 'Guardant...' : 'Guardar'}</button></div></div>)}
+        <div className="bg-white rounded-lg shadow mb-3 flex">
+          <button onClick={() => setTab('hores')} className={`flex-1 py-3 text-sm ${tab === 'hores' ? 'border-b-2 border-green-600 font-bold' : 'text-gray-400'}`}>Hores</button>
+          <button onClick={() => setTab('dispo')} className={`flex-1 py-3 text-sm ${tab === 'dispo' ? 'border-b-2 border-green-600 font-bold' : 'text-gray-400'}`}>Disponibilitat</button>
+        </div>
+
+        {tab === 'hores' && <>
+          {mode === 'list' && <><div className="bg-white rounded-lg shadow p-4 mb-3"><div className="flex justify-between items-center mb-3"><button onClick={() => setOff(off - 1)} className="px-3 py-1 bg-gray-200 rounded">←</button><span className="font-bold text-sm">{fmt(ws)} - {fmt(we)}</span><button onClick={() => setOff(off + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button></div><p className="text-gray-500 text-sm text-center">Total hores setmana</p><p className="text-3xl font-bold text-green-600 text-center mb-3">{totalH}h</p><div className="grid grid-cols-2 gap-2"><button onClick={() => { setMode('rest'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-green-600 text-white p-3 rounded-lg">+ Restaurant</button><button onClick={() => { setMode('cat'); setForm({ ...form, date: new Date().toISOString().split('T')[0] }); }} className="bg-blue-600 text-white p-3 rounded-lg">+ Càtering</button></div></div><div className="bg-white rounded-lg shadow"><h2 className="p-3 font-bold border-b">Historial setmana</h2>{mine.length === 0 ? <p className="p-4 text-gray-400">Sense entrades aquesta setmana</p> : mine.map(e => (<div key={e.id} className="p-3 border-b">{delId === e.id ? (<div className="bg-red-50 p-3 rounded flex gap-2"><button onClick={() => del(e.id)} className="bg-red-500 text-white px-4 py-2 rounded">Sí</button><button onClick={() => setDelId(null)} className="bg-gray-300 px-4 py-2 rounded">No</button></div>) : (<div className="flex justify-between"><div><p className="font-medium">{e.locName}</p><p className="text-sm text-gray-500">{fmtDate(e.date)} · {e.job}</p><p className="text-xs text-gray-400">{e.horari || (e.horaIn + '-' + e.horaOut)}</p>{e.shift && <p className="text-xs text-blue-600">{shifts[e.shift]}</p>}{e.km > 0 && <p className="text-xs text-gray-400">🚗 {e.km}km</p>}{e.note && <p className="text-xs text-purple-600">📝 {e.note}</p>}</div><div className="text-right"><p className="font-bold text-green-600">{e.hours}h</p><button onClick={() => setDelId(e.id)} className="text-red-500 text-sm">Eliminar</button></div></div>)}</div>))}</div></>}
+          {mode === 'rest' && (<div className="bg-white rounded-lg shadow p-4 space-y-3"><h2 className="font-bold">Restaurant</h2><input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full p-3 border rounded-lg" /><select value={form.locId} onChange={e => setForm({ ...form, locId: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Lloc...</option>{rests.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>{form.locId && <div className="grid grid-cols-2 gap-2">{['migdia', 'vespre', 'both', 'extra'].map(s => (<button key={s} onClick={() => setForm({ ...form, shift: s, h3: '', h4: '' })} className={`p-2 rounded border text-sm ${form.shift === s ? 'bg-green-600 text-white' : ''}`}>{shifts[s]}</button>))}</div>}<select value={form.job} onChange={e => setForm({ ...form, job: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Feina...</option>{jobs.map(j => <option key={j} value={j}>{j}</option>)}</select><div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">{form.shift === 'both' ? 'Entrada migdia' : 'Entrada'}</label><input type="time" value={form.h1} onChange={e => setForm({ ...form, h1: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">{form.shift === 'both' ? 'Sortida migdia' : 'Sortida'}</label><input type="time" value={form.h2} onChange={e => setForm({ ...form, h2: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div>{form.shift === 'both' && (<div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">Entrada vespre</label><input type="time" value={form.h3} onChange={e => setForm({ ...form, h3: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">Sortida vespre</label><input type="time" value={form.h4} onChange={e => setForm({ ...form, h4: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div>)}<input placeholder="Nota (opcional)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} className="w-full p-3 border rounded-lg" /><div className="grid grid-cols-2 gap-2"><button onClick={() => setMode('list')} className="p-3 bg-gray-200 rounded-lg">Cancel·lar</button><button onClick={addRest} disabled={saving} className="p-3 bg-green-600 text-white rounded-lg">{saving ? 'Guardant...' : 'Guardar'}</button></div></div>)}
+          {mode === 'cat' && (<div className="bg-white rounded-lg shadow p-4 space-y-3"><h2 className="font-bold">Càtering</h2><input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full p-3 border rounded-lg" /><select value={form.locId} onChange={e => setForm({ ...form, locId: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Càtering...</option>{cats.length === 0 ? <option disabled>No hi ha càterings actius</option> : cats.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select><select value={form.job} onChange={e => setForm({ ...form, job: e.target.value })} className="w-full p-3 border rounded-lg"><option value="">Feina...</option>{jobs.map(j => <option key={j} value={j}>{j}</option>)}</select><div className="grid grid-cols-2 gap-2"><div><label className="text-xs text-gray-500">Sortida</label><input type="time" value={form.h1} onChange={e => setForm({ ...form, h1: e.target.value })} className="w-full p-3 border rounded-lg" /></div><div><label className="text-xs text-gray-500">Tornada</label><input type="time" value={form.h2} onChange={e => setForm({ ...form, h2: e.target.value })} className="w-full p-3 border rounded-lg" /></div></div><label className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg"><input type="checkbox" checked={form.car} onChange={e => setForm({ ...form, car: e.target.checked })} className="w-5 h-5" /><span>Cotxe propi</span></label>{form.car && <input type="number" placeholder="Km" value={form.km} onChange={e => setForm({ ...form, km: e.target.value })} className="w-full p-3 border rounded-lg" />}<input placeholder="Nota (opcional)" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} className="w-full p-3 border rounded-lg" /><div className="grid grid-cols-2 gap-2"><button onClick={() => setMode('list')} className="p-3 bg-gray-200 rounded-lg">Cancel·lar</button><button onClick={addCat} disabled={saving} className="p-3 bg-green-600 text-white rounded-lg">{saving ? 'Guardant...' : 'Guardar'}</button></div></div>)}
+        </>}
+
+        {tab === 'dispo' && (
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex justify-between items-center mb-4">
+              <button onClick={() => setMonthOff(monthOff - 1)} className="px-3 py-1 bg-gray-200 rounded">←</button>
+              <span className="font-bold">{calMonth.toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span>
+              <button onClick={() => setMonthOff(monthOff + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2">
+              {['Dl', 'Dm', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'].map(d => <div key={d} className="font-bold text-gray-500">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {calDays.map((day, i) => {
+                if (!day) return <div key={i} />;
+                const av = getAvail(day);
+                const m = av?.migdia || false;
+                const v = av?.vespre || false;
+                return (
+                  <div key={i} className="border rounded p-1 text-center">
+                    <div className="text-xs font-bold mb-1">{day}</div>
+                    <button onClick={() => toggleAvail(day, 'migdia')} className={`w-full text-xs py-1 rounded mb-1 ${m ? 'bg-green-500 text-white' : 'bg-red-100 text-red-600'}`}>{m ? '✓M' : '✗M'}</button>
+                    <button onClick={() => toggleAvail(day, 'vespre')} className={`w-full text-xs py-1 rounded ${v ? 'bg-green-500 text-white' : 'bg-red-100 text-red-600'}`}>{v ? '✓V' : '✗V'}</button>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-400 mt-3 text-center">Clica per canviar disponibilitat</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -126,6 +201,7 @@ function Admin({ data, reload, onOut }) {
   const [tab, setTab] = useState('resum');
   const [period, setPeriod] = useState('setmana');
   const [off, setOff] = useState(0);
+  const [monthOff, setMonthOff] = useState(0);
   const [nw, setNw] = useState({ n: '', s1: '', s2: '', r: 12 });
   const [nc, setNc] = useState({ n: '', d: '' });
   const [editId, setEditId] = useState(null);
@@ -145,6 +221,16 @@ function Admin({ data, reload, onOut }) {
   const groupByWorker = () => { const workerIds = [...new Set(ents.map(e => e.odId))]; return workerIds.map(wId => { const worker = data.workers.find(w => w.id === wId); if (!worker) return null; const workerEnts = ents.filter(e => e.odId === wId); const locationIds = [...new Set(workerEnts.map(e => e.locId))]; const byLocation = locationIds.map(locId => { const loc = data.locations.find(l => l.id === locId) || { name: 'Desconegut', type: 'other' }; const locEnts = workerEnts.filter(e => e.locId === locId).sort((a, b) => a.date.localeCompare(b.date)); return { loc, entries: locEnts, subtotal: locEnts.reduce((s, e) => s + calc(e), 0) }; }); return { worker, byLocation, total: workerEnts.reduce((s, e) => s + calc(e), 0), totalHours: workerEnts.reduce((s, e) => s + (e.hours || 0), 0), entries: workerEnts }; }).filter(Boolean).sort((a, b) => (a.worker.name + ' ' + a.worker.surname1).localeCompare(b.worker.name + ' ' + b.worker.surname1, 'ca')); };
   const grouped = groupByWorker();
   const sortedWorkers = sortWorkers(data.workers);
+  
+  // Payment period for classification
+  const getPaymentPeriod = () => {
+    if (period === 'setmana') {
+      return `${ws.getFullYear()}-${String(ws.getMonth() + 1).padStart(2, '0')}-${String(ws.getDate()).padStart(2, '0')}`;
+    } else {
+      return `${ms.getFullYear()}-${String(ms.getMonth() + 1).padStart(2, '0')}-01`;
+    }
+  };
+  
   const paymentsByMonth = () => { const g = {}; data.payments.forEach(p => { const key = p.date.substring(0, 7); if (!g[key]) g[key] = { payments: [], total: 0 }; g[key].payments.push(p); g[key].total += p.amount; }); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); };
   const addW = async () => { if (!nw.n || !nw.s1) return alert('Omple nom i primer cognom'); setSaving(true); const pin = data.nextPin.toString().padStart(4, '0'); await supabase.from('workers').insert([{ id: Date.now() + '', name: nw.n.toUpperCase(), surname1: nw.s1.toUpperCase(), surname2: nw.s2 ? nw.s2.toUpperCase() : '', pin, rate: +nw.r }]); await supabase.from('config').update({ value: (data.nextPin + 1).toString() }).eq('key', 'nextPin'); await reload(); setNw({ n: '', s1: '', s2: '', r: 12 }); alert('PIN: ' + pin); setSaving(false); };
   const updW = async (id) => { setSaving(true); await supabase.from('workers').update({ name: editWV.n.toUpperCase(), surname1: editWV.s1.toUpperCase(), surname2: editWV.s2 ? editWV.s2.toUpperCase() : '', rate: +editWV.r }).eq('id', id); await reload(); setEditW(null); setSaving(false); };
@@ -153,19 +239,61 @@ function Admin({ data, reload, onOut }) {
   const toggleLoc = async (id, active) => { await supabase.from('locations').update({ active: !active }).eq('id', id); await reload(); };
   const delLoc = async (id) => { await supabase.from('locations').delete().eq('id', id); await reload(); };
   const saveEdit = async () => { setSaving(true); await supabase.from('entries').update({ total: editV.t, hours: editV.h, plus: editV.p }).eq('id', editId); await reload(); setEditId(null); setSaving(false); };
-  const confirmPay = async () => { setSaving(true); const today = new Date().toISOString().split('T')[0]; for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: today }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: today, amount: payConfirm.total }]); await reload(); setPayConfirm(null); setSaving(false); };
+  const confirmPay = async () => { setSaving(true); const paymentDate = getPaymentPeriod(); for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: paymentDate }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: paymentDate, amount: payConfirm.total }]); await reload(); setPayConfirm(null); setSaving(false); };
   const exp = () => { let c = '\uFEFF' + 'TREBALLADOR;LLOC;DATA;TORN;HORES;TOTAL;EUR/H\n'; grouped.forEach(({ worker, byLocation }) => { byLocation.forEach(({ loc, entries }) => { entries.forEach(e => { c += (worker.name + ' ' + worker.surname1) + ';' + loc.name + ';' + e.date + ';' + (shifts[e.shift] || '') + ';' + e.hours + ';' + calc(e).toFixed(2) + ';' + (e.hours > 0 ? (calc(e) / e.hours).toFixed(2) : '0') + '\n'; }); }); }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click(); };
   const expWorkers = () => { let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;PIN;PREU/HORA\n'; sortedWorkers.forEach(w => { c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + w.pin + ';' + w.rate + '\n'; }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'treballadors.csv'; a.click(); };
+
+  // Availability calendar
+  const calMonth = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);
+  const calDays = getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth());
+  
+  const getAvailForDay = (day) => {
+    if (!day) return { migdia: [], vespre: [] };
+    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayAvail = data.availability.filter(a => a.date === dateStr);
+    return {
+      migdia: dayAvail.filter(a => a.migdia).map(a => a.name),
+      vespre: dayAvail.filter(a => a.vespre).map(a => a.name)
+    };
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="bg-gray-700 text-white p-4 flex justify-between"><span className="font-bold">Admin</span><button onClick={onOut} className="bg-white text-gray-700 px-3 py-1 rounded">Sortir</button></div>
       <div className="p-3 max-w-2xl mx-auto">
-        <div className="bg-white rounded-lg shadow mb-3 flex">{['resum', 'treballadors', 'caterings', 'pagaments'].map(t => (<button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-sm ${tab === t ? 'border-b-2 border-gray-700 font-bold' : 'text-gray-400'}`}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>))}</div>
+        <div className="bg-white rounded-lg shadow mb-3 flex">{['resum', 'dispo', 'treballadors', 'caterings', 'pagaments'].map(t => (<button key={t} onClick={() => setTab(t)} className={`flex-1 py-3 text-xs ${tab === t ? 'border-b-2 border-gray-700 font-bold' : 'text-gray-400'}`}>{t === 'dispo' ? 'Dispo' : t.charAt(0).toUpperCase() + t.slice(1)}</button>))}</div>
 
         {tab === 'resum' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-3 space-y-3"><div className="flex gap-2"><button onClick={() => { setPeriod('setmana'); setOff(0); }} className={`flex-1 py-2 rounded ${period === 'setmana' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>Setmana</button><button onClick={() => { setPeriod('mes'); setOff(0); }} className={`flex-1 py-2 rounded ${period === 'mes' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>Mes</button></div><div className="flex justify-between items-center"><button onClick={() => setOff(off - 1)} className="px-4 py-2 bg-gray-200 rounded">←</button><span className="font-bold text-sm">{period === 'setmana' ? fmt(ws) + ' - ' + fmt(we) : ms.toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span><button onClick={() => setOff(off + 1)} className="px-4 py-2 bg-gray-200 rounded">→</button></div><button onClick={exp} className="w-full bg-green-600 text-white py-3 rounded-lg">📥 Descarregar CSV</button></div>
           {grouped.map(({ worker, byLocation, total, totalHours, entries }) => (<div key={worker.id} className="bg-white rounded-lg shadow overflow-hidden"><div className="p-3 bg-gray-700 text-white flex justify-between items-center"><span className="font-bold">{worker.name} {worker.surname1} {worker.surname2}</span><span className="font-bold text-green-300">{total.toFixed(2)}€</span></div>{byLocation.map(({ loc, entries: locEnts, subtotal }) => (<div key={loc.id || loc.name} className="border-b"><div className="p-2 bg-gray-100 flex justify-between items-center"><span className="font-medium text-sm">{loc.type === 'catering' ? '🚐' : '📍'} {loc.name}</span><span className="text-sm font-bold text-gray-600">{subtotal.toFixed(2)}€</span></div>{locEnts.map(e => (<div key={e.id} className="p-2 pl-4 border-t border-gray-100">{editId === e.id ? (<div className="space-y-2"><div className="grid grid-cols-3 gap-2"><div><label className="text-xs text-gray-500">Total €</label><input type="number" value={editV.t} onChange={x => setEditV({ ...editV, t: +x.target.value })} className="w-full p-2 border rounded text-sm" /></div><div><label className="text-xs text-gray-500">Hores</label><input type="number" step="0.1" value={editV.h} onChange={x => setEditV({ ...editV, h: +x.target.value })} className="w-full p-2 border rounded text-sm" /></div><div><label className="text-xs text-gray-500">Plus</label><input type="number" value={editV.p} onChange={x => setEditV({ ...editV, p: +x.target.value })} className="w-full p-2 border rounded text-sm" /></div></div><div className="flex gap-2"><button onClick={saveEdit} disabled={saving} className="bg-green-600 text-white px-3 py-1 rounded text-sm">{saving ? '...' : 'Guardar'}</button><button onClick={() => setEditId(null)} className="bg-gray-200 px-3 py-1 rounded text-sm">Cancel</button></div></div>) : (<div className="flex justify-between items-center"><div className="text-sm"><span className="text-gray-500">{fmtDate(e.date)}</span>{e.shift && <span className="ml-2 text-blue-600">{shifts[e.shift]}</span>}<span className="ml-2 text-gray-400">{e.horaIn}-{e.horaOut}</span><span className="ml-2 text-gray-400">({e.hours}h · {e.hours > 0 ? (calc(e) / e.hours).toFixed(1) : 0}€/h)</span>{e.km > 0 && <span className="ml-2 text-orange-500">🚗{e.km}km</span>}{e.plus > 0 && <span className="ml-2 text-purple-500">+{e.plus}€</span>}</div><div className="flex items-center gap-2"><span className="font-medium">{calc(e).toFixed(2)}€</span><button onClick={() => { setEditId(e.id); setEditV({ t: e.total || 0, h: e.hours || 0, p: e.plus || 0 }); }} className="text-blue-500">✏️</button></div></div>)}</div>))}</div>))}<div className="p-3 bg-gray-50 flex justify-between items-center"><span className="text-sm text-gray-500">{entries.length} entrades · {totalHours}h</span><button onClick={() => setPayConfirm({ worker, total, entries })} className="bg-green-600 text-white px-4 py-2 rounded font-bold">✅ Pagar {total.toFixed(2)}€</button></div></div>))}
           {grouped.length === 0 && <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">Sense entrades pendents</div>}</div>)}
+
+        {tab === 'dispo' && (
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex justify-between items-center mb-4">
+              <button onClick={() => setMonthOff(monthOff - 1)} className="px-3 py-1 bg-gray-200 rounded">←</button>
+              <span className="font-bold">{calMonth.toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span>
+              <button onClick={() => setMonthOff(monthOff + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2">
+              {['Dl', 'Dm', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'].map(d => <div key={d} className="font-bold text-gray-500">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {calDays.map((day, i) => {
+                if (!day) return <div key={i} />;
+                const av = getAvailForDay(day);
+                return (
+                  <div key={i} className="border rounded p-1 min-h-16">
+                    <div className="text-xs font-bold text-center mb-1">{day}</div>
+                    <div className="text-xs">
+                      {av.migdia.length > 0 && <div className="bg-yellow-100 rounded px-1 mb-1"><span className="font-bold">M:</span> {av.migdia.map(n => n.split(' ')[0]).join(', ')}</div>}
+                      {av.vespre.length > 0 && <div className="bg-blue-100 rounded px-1"><span className="font-bold">V:</span> {av.vespre.map(n => n.split(' ')[0]).join(', ')}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {tab === 'treballadors' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-4 space-y-2"><input placeholder="Nom" value={nw.n} onChange={e => setNw({ ...nw, n: e.target.value })} className="w-full p-3 border rounded" /><div className="flex gap-2"><input placeholder="1r cognom" value={nw.s1} onChange={e => setNw({ ...nw, s1: e.target.value })} className="flex-1 p-3 border rounded" /><input placeholder="2n cognom" value={nw.s2} onChange={e => setNw({ ...nw, s2: e.target.value })} className="flex-1 p-3 border rounded" /></div><div className="flex gap-2"><div className="w-24"><label className="text-xs text-gray-500">€/hora</label><input type="number" value={nw.r} onChange={e => setNw({ ...nw, r: e.target.value })} className="w-full p-3 border rounded" /></div><button onClick={addW} disabled={saving} className="flex-1 bg-green-600 text-white p-3 rounded">{saving ? 'Creant...' : 'Crear'}</button></div><button onClick={expWorkers} className="w-full bg-blue-600 text-white py-3 rounded-lg">📥 Descarregar Treballadors</button></div><div className="bg-white rounded-lg shadow divide-y">{sortedWorkers.map(w => (<div key={w.id} className="p-4">{editW === w.id ? (<div className="space-y-2"><input value={editWV.n} onChange={e => setEditWV({ ...editWV, n: e.target.value })} className="w-full p-2 border rounded" placeholder="Nom" /><div className="flex gap-2"><input value={editWV.s1} onChange={e => setEditWV({ ...editWV, s1: e.target.value })} className="flex-1 p-2 border rounded" placeholder="1r cognom" /><input value={editWV.s2} onChange={e => setEditWV({ ...editWV, s2: e.target.value })} className="flex-1 p-2 border rounded" placeholder="2n cognom" /></div><div className="flex gap-2"><input type="number" value={editWV.r} onChange={e => setEditWV({ ...editWV, r: e.target.value })} className="w-20 p-2 border rounded" /><button onClick={() => updW(w.id)} disabled={saving} className="bg-green-600 text-white px-4 py-2 rounded">{saving ? '...' : 'Guardar'}</button><button onClick={() => setEditW(null)} className="bg-gray-200 px-4 py-2 rounded">Cancel</button></div></div>) : (<div className="flex justify-between"><div><p className="font-medium">{w.name} {w.surname1} {w.surname2}</p><p className="text-sm text-gray-500">PIN: {w.pin} · {w.rate}€/h</p></div><div className="flex gap-2"><button onClick={() => { setEditW(w.id); setEditWV({ n: w.name, s1: w.surname1, s2: w.surname2 || '', r: w.rate }); }} className="text-blue-500">Editar</button><button onClick={() => delW(w.id)} className="text-red-500">Elim</button></div></div>)}</div>))}</div></div>)}
 

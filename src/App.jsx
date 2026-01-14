@@ -74,12 +74,40 @@ export default function App() {
     setLoading(false);
   };
 
+  // Reload only specific data without full reload
+  const reloadAvailability = async () => {
+    const a = await supabase.from('availability').select('*');
+    setData(prev => ({
+      ...prev,
+      availability: (a.data || []).map(x => ({ id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, migdia: x.migdia, vespre: x.vespre }))
+    }));
+  };
+
+  const reloadEntries = async () => {
+    const [e, p] = await Promise.all([
+      supabase.from('entries').select('*'),
+      supabase.from('payments').select('*')
+    ]);
+    setData(prev => ({
+      ...prev,
+      entries: (e.data || []).map(x => ({
+        id: x.id, odId: x.od_id, name: x.name, date: x.date, locId: x.loc_id, locName: x.loc_name,
+        type: x.type, shift: x.shift, job: x.job, horaIn: x.hora_in, horaOut: x.hora_out,
+        horaIn2: x.hora_in2, horaOut2: x.hora_out2, horari: x.horari, hours: x.hours,
+        rate: x.rate, customRate: x.custom_rate, plus: x.plus || 0, total: x.total,
+        note: x.note, car: x.car, km: x.km || 0, kmCost: x.km_cost || 0,
+        paid: x.paid || false, paidDate: x.paid_date
+      })),
+      payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount }))
+    }));
+  };
+
   if (loading) return <div className="p-8 text-center">Carregant...</div>;
   if (view === 'menu') return <Menu onWorker={() => setView('pin')} onAdmin={() => setView('adminLogin')} />;
   if (view === 'adminLogin') return <AdminLogin onBack={() => setView('menu')} onOk={() => setView('admin')} />;
   if (view === 'pin') return <Pin data={data} onBack={() => setView('menu')} onOk={w => { setUser(w); setView('worker'); }} />;
-  if (view === 'worker') return <Worker user={user} data={data} reload={loadData} onOut={() => { setUser(null); setView('menu'); }} />;
-  return <Admin data={data} reload={loadData} onOut={() => setView('menu')} />;
+  if (view === 'worker') return <Worker user={user} data={data} reload={loadData} reloadAvailability={reloadAvailability} onOut={() => { setUser(null); setView('menu'); }} />;
+  return <Admin data={data} reload={loadData} reloadEntries={reloadEntries} onOut={() => setView('menu')} />;
 }
 
 function Menu({ onWorker, onAdmin }) {
@@ -100,7 +128,7 @@ function Pin({ data, onBack, onOk }) {
   return (<div className="min-h-screen bg-gray-100 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow p-6 w-full max-w-xs"><button onClick={onBack} className="text-gray-500 mb-4">← Tornar</button><h1 className="text-xl font-bold text-center mb-4">PIN</h1><input type="password" inputMode="numeric" value={pin} onChange={e => { setPin(e.target.value); setErr(''); }} className="w-full p-4 border-2 rounded-lg text-center text-2xl mb-3" maxLength="4" />{err && <p className="text-red-500 text-center mb-3">{err}</p>}<button onClick={go} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold">Entrar</button></div></div>);
 }
 
-function Worker({ user, data, reload, onOut }) {
+function Worker({ user, data, reload, reloadAvailability, onOut }) {
   const [tab, setTab] = useState('hores');
   const [mode, setMode] = useState('list');
   const [off, setOff] = useState(0);
@@ -146,7 +174,7 @@ function Worker({ user, data, reload, onOut }) {
       const newAvail = { id: Date.now() + '', worker_id: user.id, worker_name: user.name + ' ' + user.surname1, date: dateStr, migdia: tipo === 'migdia', vespre: tipo === 'vespre' };
       await supabase.from('availability').insert([newAvail]);
     }
-    await reload();
+    await reloadAvailability();
   };
 
   return (
@@ -197,7 +225,7 @@ function Worker({ user, data, reload, onOut }) {
   );
 }
 
-function Admin({ data, reload, onOut }) {
+function Admin({ data, reload, reloadEntries, onOut }) {
   const [tab, setTab] = useState('resum');
   const [period, setPeriod] = useState('setmana');
   const [off, setOff] = useState(0);
@@ -238,8 +266,8 @@ function Admin({ data, reload, onOut }) {
   const addC = async () => { if (!nc.n || !nc.d) return alert('Omple tot'); setSaving(true); await supabase.from('locations').insert([{ id: Date.now() + '', name: nc.n + ' - ' + nc.d, date: nc.d, type: 'catering', active: true }]); await reload(); setNc({ n: '', d: '' }); setSaving(false); };
   const toggleLoc = async (id, active) => { await supabase.from('locations').update({ active: !active }).eq('id', id); await reload(); };
   const delLoc = async (id) => { await supabase.from('locations').delete().eq('id', id); await reload(); };
-  const saveEdit = async () => { setSaving(true); await supabase.from('entries').update({ total: editV.t, hours: editV.h, plus: editV.p }).eq('id', editId); await reload(); setEditId(null); setSaving(false); };
-  const confirmPay = async () => { setSaving(true); const paymentDate = getPaymentPeriod(); for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: paymentDate }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: paymentDate, amount: payConfirm.total }]); await reload(); setPayConfirm(null); setSaving(false); };
+  const saveEdit = async () => { setSaving(true); await supabase.from('entries').update({ total: editV.t, hours: editV.h, plus: editV.p }).eq('id', editId); await reloadEntries(); setEditId(null); setSaving(false); };
+  const confirmPay = async () => { setSaving(true); const paymentDate = getPaymentPeriod(); for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: paymentDate }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: paymentDate, amount: payConfirm.total }]); await reloadEntries(); setPayConfirm(null); setSaving(false); };
   const exp = () => { let c = '\uFEFF' + 'TREBALLADOR;LLOC;DATA;TORN;HORES;TOTAL;EUR/H\n'; grouped.forEach(({ worker, byLocation }) => { byLocation.forEach(({ loc, entries }) => { entries.forEach(e => { c += (worker.name + ' ' + worker.surname1) + ';' + loc.name + ';' + e.date + ';' + (shifts[e.shift] || '') + ';' + e.hours + ';' + calc(e).toFixed(2) + ';' + (e.hours > 0 ? (calc(e) / e.hours).toFixed(2) : '0') + '\n'; }); }); }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click(); };
   const expWorkers = () => { let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;PIN;PREU/HORA\n'; sortedWorkers.forEach(w => { c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + w.pin + ';' + w.rate + '\n'; }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'treballadors.csv'; a.click(); };
 

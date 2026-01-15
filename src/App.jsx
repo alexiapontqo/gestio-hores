@@ -267,7 +267,31 @@ function Admin({ data, reload, reloadEntries, onOut }) {
   const saveEdit = async () => { setSaving(true); await supabase.from('entries').update({ total: editV.t, hours: editV.h, plus: editV.p }).eq('id', editId); await reloadEntries(); setEditId(null); setSaving(false); };
   const delEntry = async (id) => { await supabase.from('entries').delete().eq('id', id); await reloadEntries(); setDelId(null); };
   const confirmPay = async () => { setSaving(true); const paymentDate = getPaymentPeriod(); for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: paymentDate }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: paymentDate, amount: payConfirm.total }]); await reloadEntries(); setPayConfirm(null); setSaving(false); };
-  const exp = () => { let c = '\uFEFF' + 'TREBALLADOR;LLOC;DATA;TORN;HORES;TOTAL;EUR/H\n'; grouped.forEach(({ worker, byLocation }) => { byLocation.forEach(({ loc, entries }) => { entries.forEach(e => { c += (worker.name + ' ' + worker.surname1) + ';' + loc.name + ';' + e.date + ';' + (shifts[e.shift] || '') + ';' + e.hours + ';' + calc(e).toFixed(2) + ';' + (e.hours > 0 ? (calc(e) / e.hours).toFixed(2) : '0') + '\n'; }); }); }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click(); };
+  
+  // CSV millorat amb agrupació per treballador i totals
+  const exp = () => {
+    let c = '\uFEFF' + 'TREBALLADOR;LLOC;DATA;TORN;HORES;TOTAL;EUR/H\n';
+    grouped.forEach(({ worker, byLocation, total }) => {
+      const workerName = (worker.name + ' ' + worker.surname1 + ' ' + (worker.surname2 || '')).trim();
+      byLocation.forEach(({ loc, entries, subtotal }) => {
+        entries.forEach(e => {
+          const t = Math.round(calc(e));
+          const h = e.hours % 1 === 0 ? e.hours : e.hours;
+          const eurh = e.hours > 0 ? Math.round(calc(e) / e.hours) : 0;
+          c += ';' + loc.name + ';' + fmtDate(e.date) + ';' + (shifts[e.shift] || '') + ';' + h + ';' + t + ';' + eurh + '\n';
+        });
+        c += ';TOTAL ' + loc.name + ';;;;' + Math.round(subtotal) + ';\n';
+      });
+      c += workerName + ';;;;;\n';
+      c += 'TOTAL ' + workerName + ';;;;' + Math.round(total) + ';\n';
+      c += ';;;;;;;\n';
+    });
+    const a = document.createElement('a'); 
+    a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); 
+    a.download = 'hores.csv'; 
+    a.click(); 
+  };
+  
   const expWorkers = () => { let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;PIN;PREU/HORA\n'; sortedWorkers.forEach(w => { c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + w.pin + ';' + w.rate + '\n'; }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'treballadors.csv'; a.click(); };
 
   const calMonth = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);

@@ -181,8 +181,8 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
     if (existing) {
       const newVal = tipo === 'migdia' ? !existing.migdia : !existing.vespre;
       const updates = tipo === 'migdia' 
-        ? { migdia: newVal, migdia_status: newVal ? 'pending' : 'pending' } 
-        : { vespre: newVal, vespre_status: newVal ? 'pending' : 'pending' };
+        ? { migdia: newVal, migdia_status: 'pending' } 
+        : { vespre: newVal, vespre_status: 'pending' };
       await supabase.from('availability').update(updates).eq('id', existing.id);
     } else {
       const newAvail = { 
@@ -193,7 +193,9 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
         migdia: tipo === 'migdia', 
         vespre: tipo === 'vespre',
         migdia_status: 'pending',
-        vespre_status: 'pending'
+        vespre_status: 'pending',
+        migdia_loc: '',
+        vespre_loc: ''
       };
       await supabase.from('availability').insert([newAvail]);
     }
@@ -346,31 +348,33 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
     };
   };
 
+  const refreshSelectedDay = (dateStr) => {
+    const dayAvail = data.availability.filter(a => a.date === dateStr);
+    const day = parseInt(dateStr.split('-')[2]);
+    return {
+      day,
+      dateStr,
+      migdia: dayAvail.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      migdiaCancelled: dayAvail.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      vespreCancelled: dayAvail.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
+    };
+  };
+
   const updateStatus = async (availId, tipo, newStatus, newLoc = '') => {
     const updates = tipo === 'migdia' 
       ? { migdia_status: newStatus, migdia_loc: newLoc } 
       : { vespre_status: newStatus, vespre_loc: newLoc };
     await supabase.from('availability').update(updates).eq('id', availId);
     await reloadAvailability();
-    // Actualitzar selectedDay
-    const dateStr = selectedDay.dateStr;
-    const newAvail = await supabase.from('availability').select('*').eq('date', dateStr);
-    const newData = (newAvail.data || []).map(x => ({ 
-      id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
-      migdia: x.migdia, vespre: x.vespre,
-      migdiaStatus: x.migdia_status || 'pending',
-      vespreStatus: x.vespre_status || 'pending',
-      migdiaLoc: x.migdia_loc || '',
-      vespreLoc: x.vespre_loc || ''
-    }));
-    setSelectedDay({
-      ...selectedDay,
-      migdia: newData.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespre: newData.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      migdiaCancelled: newData.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespreCancelled: newData.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
-    });
   };
+
+  // Actualitzar selectedDay quan canvia data.availability
+  useEffect(() => {
+    if (selectedDay) {
+      setSelectedDay(refreshSelectedDay(selectedDay.dateStr));
+    }
+  }, [data.availability]);
 
   const getStatusBg = (status) => {
     if (status === 'confirmed') return 'bg-green-100 text-green-800';
@@ -459,7 +463,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-medium">{a.name}</span>
                     <div className="flex gap-1">
-                      <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed', a.migdiaLoc)} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed', a.migdiaLoc || '')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
                       <button onClick={() => updateStatus(a.id, 'migdia', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
                     </div>
                   </div>
@@ -494,7 +498,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-medium">{a.name}</span>
                     <div className="flex gap-1">
-                      <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed', a.vespreLoc)} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed', a.vespreLoc || '')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
                       <button onClick={() => updateStatus(a.id, 'vespre', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
                     </div>
                   </div>

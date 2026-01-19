@@ -83,17 +83,16 @@ export default function App() {
 
   const reloadAvailability = async () => {
     const a = await supabase.from('availability').select('*');
-    setData(prev => ({
-      ...prev,
-      availability: (a.data || []).map(x => ({ 
-        id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
-        migdia: x.migdia, vespre: x.vespre,
-        migdiaStatus: x.migdia_status || 'pending',
-        vespreStatus: x.vespre_status || 'pending',
-        migdiaLoc: x.migdia_loc || '',
-        vespreLoc: x.vespre_loc || ''
-      }))
+    const newAvail = (a.data || []).map(x => ({ 
+      id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
+      migdia: x.migdia, vespre: x.vespre,
+      migdiaStatus: x.migdia_status || 'pending',
+      vespreStatus: x.vespre_status || 'pending',
+      migdiaLoc: x.migdia_loc || '',
+      vespreLoc: x.vespre_loc || ''
     }));
+    setData(prev => ({ ...prev, availability: newAvail }));
+    return newAvail;
   };
 
   const reloadEntries = async () => {
@@ -336,45 +335,38 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   const calMonth = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);
   const calDays = getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth());
   
-  const getAvailForDay = (day) => {
-    if (!day) return { migdia: [], vespre: [], migdiaCancelled: [], vespreCancelled: [] };
-    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayAvail = data.availability.filter(a => a.date === dateStr);
-    return {
-      migdia: dayAvail.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      migdiaCancelled: dayAvail.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespreCancelled: dayAvail.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
-    };
-  };
-
-  const refreshSelectedDay = (dateStr) => {
-    const dayAvail = data.availability.filter(a => a.date === dateStr);
+  const buildDayData = (dateStr, availList) => {
+    const dayAvail = availList.filter(a => a.date === dateStr);
     const day = parseInt(dateStr.split('-')[2]);
     return {
       day,
       dateStr,
-      migdia: dayAvail.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      migdiaCancelled: dayAvail.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespreCancelled: dayAvail.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
+      migdia: dayAvail.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a })),
+      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a })),
+      migdiaCancelled: dayAvail.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a })),
+      vespreCancelled: dayAvail.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a }))
     };
   };
 
+  const getAvailForDay = (day) => {
+    if (!day) return { migdia: [], vespre: [], migdiaCancelled: [], vespreCancelled: [] };
+    const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return buildDayData(dateStr, data.availability);
+  };
+
   const updateStatus = async (availId, tipo, newStatus, newLoc = '') => {
+    setSaving(true);
     const updates = tipo === 'migdia' 
       ? { migdia_status: newStatus, migdia_loc: newLoc } 
       : { vespre_status: newStatus, vespre_loc: newLoc };
     await supabase.from('availability').update(updates).eq('id', availId);
-    await reloadAvailability();
-  };
-
-  // Actualitzar selectedDay quan canvia data.availability
-  useEffect(() => {
+    const newAvailList = await reloadAvailability();
+    // Actualitzar selectedDay amb les noves dades
     if (selectedDay) {
-      setSelectedDay(refreshSelectedDay(selectedDay.dateStr));
+      setSelectedDay(buildDayData(selectedDay.dateStr, newAvailList));
     }
-  }, [data.availability]);
+    setSaving(false);
+  };
 
   const getStatusBg = (status) => {
     if (status === 'confirmed') return 'bg-green-100 text-green-800';
@@ -463,8 +455,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-medium">{a.name}</span>
                     <div className="flex gap-1">
-                      <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed', a.migdiaLoc || '')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
-                      <button onClick={() => updateStatus(a.id, 'migdia', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                      <button disabled={saving} onClick={() => updateStatus(a.id, 'migdia', 'confirmed', a.migdiaLoc || '')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button disabled={saving} onClick={() => updateStatus(a.id, 'migdia', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
                     </div>
                   </div>
                   {a.migdiaStatus === 'confirmed' && (
@@ -483,7 +475,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
               {selectedDay.migdiaCancelled.map(a => (
                 <div key={a.id + 'mc'} className="p-2 rounded bg-red-50 text-red-600 flex justify-between items-center mb-1">
                   <span className="line-through">{a.name}</span>
-                  <button onClick={() => updateStatus(a.id, 'migdia', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
+                  <button disabled={saving} onClick={() => updateStatus(a.id, 'migdia', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
                 </div>
               ))}
             </div>
@@ -498,8 +490,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-medium">{a.name}</span>
                     <div className="flex gap-1">
-                      <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed', a.vespreLoc || '')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
-                      <button onClick={() => updateStatus(a.id, 'vespre', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                      <button disabled={saving} onClick={() => updateStatus(a.id, 'vespre', 'confirmed', a.vespreLoc || '')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button disabled={saving} onClick={() => updateStatus(a.id, 'vespre', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
                     </div>
                   </div>
                   {a.vespreStatus === 'confirmed' && (
@@ -518,7 +510,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
               {selectedDay.vespreCancelled.map(a => (
                 <div key={a.id + 'vc'} className="p-2 rounded bg-red-50 text-red-600 flex justify-between items-center mb-1">
                   <span className="line-through">{a.name}</span>
-                  <button onClick={() => updateStatus(a.id, 'vespre', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
+                  <button disabled={saving} onClick={() => updateStatus(a.id, 'vespre', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
                 </div>
               ))}
             </div>

@@ -68,7 +68,12 @@ export default function App() {
         paid: x.paid || false, paidDate: x.paid_date
       })),
       payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount })),
-      availability: (a.data || []).map(x => ({ id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, migdia: x.migdia, vespre: x.vespre })),
+      availability: (a.data || []).map(x => ({ 
+        id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
+        migdia: x.migdia, vespre: x.vespre,
+        migdiaStatus: x.migdia_status || 'pending',
+        vespreStatus: x.vespre_status || 'pending'
+      })),
       nextPin: c.data ? parseInt(c.data.value) : 1041
     });
     setLoading(false);
@@ -78,7 +83,12 @@ export default function App() {
     const a = await supabase.from('availability').select('*');
     setData(prev => ({
       ...prev,
-      availability: (a.data || []).map(x => ({ id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, migdia: x.migdia, vespre: x.vespre }))
+      availability: (a.data || []).map(x => ({ 
+        id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
+        migdia: x.migdia, vespre: x.vespre,
+        migdiaStatus: x.migdia_status || 'pending',
+        vespreStatus: x.vespre_status || 'pending'
+      }))
     }));
   };
 
@@ -106,7 +116,7 @@ export default function App() {
   if (view === 'adminLogin') return <AdminLogin onBack={() => setView('menu')} onOk={() => setView('admin')} />;
   if (view === 'pin') return <Pin data={data} onBack={() => setView('menu')} onOk={w => { setUser(w); setView('worker'); }} />;
   if (view === 'worker') return <Worker user={user} data={data} reload={loadData} reloadAvailability={reloadAvailability} onOut={() => { setUser(null); setView('menu'); }} />;
-  return <Admin data={data} reload={loadData} reloadEntries={reloadEntries} onOut={() => setView('menu')} />;
+  return <Admin data={data} reload={loadData} reloadEntries={reloadEntries} reloadAvailability={reloadAvailability} onOut={() => setView('menu')} />;
 }
 
 function Menu({ onWorker, onAdmin }) {
@@ -166,13 +176,31 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
     const existing = myAvail.find(a => a.date === dateStr);
     if (existing) {
       const newVal = tipo === 'migdia' ? !existing.migdia : !existing.vespre;
-      const updates = tipo === 'migdia' ? { migdia: newVal } : { vespre: newVal };
+      const updates = tipo === 'migdia' 
+        ? { migdia: newVal, migdia_status: newVal ? 'pending' : 'pending' } 
+        : { vespre: newVal, vespre_status: newVal ? 'pending' : 'pending' };
       await supabase.from('availability').update(updates).eq('id', existing.id);
     } else {
-      const newAvail = { id: Date.now() + '', worker_id: user.id, worker_name: user.name + ' ' + user.surname1, date: dateStr, migdia: tipo === 'migdia', vespre: tipo === 'vespre' };
+      const newAvail = { 
+        id: Date.now() + '', 
+        worker_id: user.id, 
+        worker_name: user.name + ' ' + user.surname1, 
+        date: dateStr, 
+        migdia: tipo === 'migdia', 
+        vespre: tipo === 'vespre',
+        migdia_status: 'pending',
+        vespre_status: 'pending'
+      };
       await supabase.from('availability').insert([newAvail]);
     }
     await reloadAvailability();
+  };
+
+  const getStatusIcon = (available, status) => {
+    if (!available) return { icon: '✗', bg: 'bg-red-100 text-red-600' };
+    if (status === 'confirmed') return { icon: '✓', bg: 'bg-green-500 text-white' };
+    if (status === 'cancelled') return { icon: '✗', bg: 'bg-red-500 text-white' };
+    return { icon: '?', bg: 'bg-yellow-400 text-white' }; // pending
   };
 
   return (
@@ -197,6 +225,11 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
               <span className="font-bold">{calMonth.toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span>
               <button onClick={() => setMonthOff(monthOff + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button>
             </div>
+            <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-center">
+              <span className="inline-block px-2 py-1 bg-yellow-400 text-white rounded mr-1">?</span> Pendent
+              <span className="inline-block px-2 py-1 bg-green-500 text-white rounded mx-1">✓</span> Confirmat
+              <span className="inline-block px-2 py-1 bg-red-500 text-white rounded ml-1">✗</span> Cancel·lat
+            </div>
             <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2">
               {['Dl', 'Dm', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'].map(d => <div key={d} className="font-bold text-gray-500">{d}</div>)}
             </div>
@@ -204,13 +237,13 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
               {calDays.map((day, i) => {
                 if (!day) return <div key={i} />;
                 const av = getAvail(day);
-                const m = av?.migdia || false;
-                const v = av?.vespre || false;
+                const mStatus = getStatusIcon(av?.migdia, av?.migdiaStatus);
+                const vStatus = getStatusIcon(av?.vespre, av?.vespreStatus);
                 return (
                   <div key={i} className="border rounded p-1 text-center">
                     <div className="text-xs font-bold mb-1">{day}</div>
-                    <button onClick={() => toggleAvail(day, 'migdia')} className={`w-full text-xs py-1 rounded mb-1 ${m ? 'bg-green-500 text-white' : 'bg-red-100 text-red-600'}`}>{m ? '✓M' : '✗M'}</button>
-                    <button onClick={() => toggleAvail(day, 'vespre')} className={`w-full text-xs py-1 rounded ${v ? 'bg-green-500 text-white' : 'bg-red-100 text-red-600'}`}>{v ? '✓V' : '✗V'}</button>
+                    <button onClick={() => toggleAvail(day, 'migdia')} className={`w-full text-xs py-1 rounded mb-1 ${mStatus.bg}`}>{mStatus.icon}M</button>
+                    <button onClick={() => toggleAvail(day, 'vespre')} className={`w-full text-xs py-1 rounded ${vStatus.bg}`}>{vStatus.icon}V</button>
                   </div>
                 );
               })}
@@ -223,7 +256,7 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
   );
 }
 
-function Admin({ data, reload, reloadEntries, onOut }) {
+function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   const [tab, setTab] = useState('resum');
   const [period, setPeriod] = useState('setmana');
   const [off, setOff] = useState(0);
@@ -237,6 +270,7 @@ function Admin({ data, reload, reloadEntries, onOut }) {
   const [editWV, setEditWV] = useState({});
   const [payConfirm, setPayConfirm] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(null);
   const now = new Date();
   const ws = getMonday(now, off);
   const we = new Date(ws); we.setDate(ws.getDate() + 6); we.setHours(23, 59, 59, 999);
@@ -268,7 +302,6 @@ function Admin({ data, reload, reloadEntries, onOut }) {
   const delEntry = async (id) => { await supabase.from('entries').delete().eq('id', id); await reloadEntries(); setDelId(null); };
   const confirmPay = async () => { setSaving(true); const paymentDate = getPaymentPeriod(); for (const e of payConfirm.entries) { await supabase.from('entries').update({ paid: true, paid_date: paymentDate }).eq('id', e.id); } await supabase.from('payments').insert([{ id: Date.now() + '', od_id: payConfirm.worker.id, name: (payConfirm.worker.name + ' ' + payConfirm.worker.surname1 + ' ' + (payConfirm.worker.surname2 || '')).trim(), date: paymentDate, amount: payConfirm.total }]); await reloadEntries(); setPayConfirm(null); setSaving(false); };
   
-  // CSV millorat amb agrupació per treballador i totals
   const exp = () => {
     let c = '\uFEFF' + 'TREBALLADOR;LLOC;DATA;TORN;HORES;TOTAL;EUR/H\n';
     grouped.forEach(({ worker, byLocation, total }) => {
@@ -302,9 +335,23 @@ function Admin({ data, reload, reloadEntries, onOut }) {
     const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayAvail = data.availability.filter(a => a.date === dateStr);
     return {
-      migdia: dayAvail.filter(a => a.migdia).map(a => a.name),
-      vespre: dayAvail.filter(a => a.vespre).map(a => a.name)
+      migdia: dayAvail.filter(a => a.migdia).map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      vespre: dayAvail.filter(a => a.vespre).map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
     };
+  };
+
+  const updateStatus = async (availId, tipo, newStatus) => {
+    const updates = tipo === 'migdia' 
+      ? { migdia_status: newStatus } 
+      : { vespre_status: newStatus };
+    await supabase.from('availability').update(updates).eq('id', availId);
+    await reloadAvailability();
+  };
+
+  const getStatusBg = (status) => {
+    if (status === 'confirmed') return 'bg-green-100 text-green-800';
+    if (status === 'cancelled') return 'bg-red-100 text-red-800 line-through';
+    return 'bg-yellow-100 text-yellow-800';
   };
 
   return (
@@ -331,17 +378,19 @@ function Admin({ data, reload, reloadEntries, onOut }) {
               {calDays.map((day, i) => {
                 if (!day) return <div key={i} />;
                 const av = getAvailForDay(day);
+                const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 return (
-                  <div key={i} className="border rounded p-1 min-h-16">
+                  <div key={i} className="border rounded p-1 min-h-16 cursor-pointer hover:bg-gray-50" onClick={() => setSelectedDay({ day, dateStr, ...av })}>
                     <div className="text-xs font-bold text-center mb-1">{day}</div>
                     <div className="text-xs">
-                      {av.migdia.length > 0 && <div className="bg-yellow-100 rounded px-1 mb-1"><span className="font-bold">M:</span> {av.migdia.map(n => n.split(' ')[0]).join(', ')}</div>}
-                      {av.vespre.length > 0 && <div className="bg-blue-100 rounded px-1"><span className="font-bold">V:</span> {av.vespre.map(n => n.split(' ')[0]).join(', ')}</div>}
+                      {av.migdia.length > 0 && <div className="bg-yellow-100 rounded px-1 mb-1 truncate"><span className="font-bold">M:</span> {av.migdia.length}</div>}
+                      {av.vespre.length > 0 && <div className="bg-blue-100 rounded px-1 truncate"><span className="font-bold">V:</span> {av.vespre.length}</div>}
                     </div>
                   </div>
                 );
               })}
             </div>
+            <p className="text-xs text-gray-400 mt-3 text-center">Clica un dia per veure i gestionar disponibilitat</p>
           </div>
         )}
 
@@ -353,6 +402,44 @@ function Admin({ data, reload, reloadEntries, onOut }) {
       </div>
 
       {payConfirm && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full"><h3 className="text-lg font-bold mb-4">Confirmar pagament</h3><p className="mb-2">Pagar a <strong>{payConfirm.worker.name} {payConfirm.worker.surname1}</strong>:</p><p className="text-3xl font-bold text-green-600 mb-4">{payConfirm.total.toFixed(2)}€</p><p className="text-sm text-gray-500 mb-4">Això marcarà {payConfirm.entries.length} entrades com a pagades.</p><div className="flex gap-2"><button onClick={() => setPayConfirm(null)} className="flex-1 py-2 bg-gray-200 rounded">Cancel·lar</button><button onClick={confirmPay} disabled={saving} className="flex-1 py-2 bg-green-600 text-white rounded font-bold">{saving ? 'Processant...' : 'Confirmar'}</button></div></div></div>)}
+
+      {selectedDay && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">📅 {selectedDay.day} {calMonth.toLocaleDateString('ca-ES', { month: 'long' })}</h3><button onClick={() => setSelectedDay(null)} className="text-gray-500 text-xl">×</button></div>
+        <div className="mb-4">
+          <h4 className="font-bold text-yellow-600 mb-2">☀️ MIGDIA</h4>
+          {selectedDay.migdia.length === 0 ? <p className="text-gray-400 text-sm">Ningú disponible</p> : (
+            <div className="space-y-2">
+              {selectedDay.migdia.map(a => (
+                <div key={a.id} className={`p-2 rounded flex justify-between items-center ${getStatusBg(a.migdiaStatus)}`}>
+                  <span>{a.name}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>✓</button>
+                    <button onClick={() => updateStatus(a.id, 'migdia', 'cancelled')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'cancelled' ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>✗</button>
+                    <button onClick={() => updateStatus(a.id, 'migdia', 'pending')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'pending' ? 'bg-yellow-500 text-white' : 'bg-gray-200'}`}>?</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <h4 className="font-bold text-blue-600 mb-2">🌙 VESPRE</h4>
+          {selectedDay.vespre.length === 0 ? <p className="text-gray-400 text-sm">Ningú disponible</p> : (
+            <div className="space-y-2">
+              {selectedDay.vespre.map(a => (
+                <div key={a.id + 'v'} className={`p-2 rounded flex justify-between items-center ${getStatusBg(a.vespreStatus)}`}>
+                  <span>{a.name}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>✓</button>
+                    <button onClick={() => updateStatus(a.id, 'vespre', 'cancelled')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'cancelled' ? 'bg-red-600 text-white' : 'bg-gray-200'}`}>✗</button>
+                    <button onClick={() => updateStatus(a.id, 'vespre', 'pending')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'pending' ? 'bg-yellow-500 text-white' : 'bg-gray-200'}`}>?</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <button onClick={() => setSelectedDay(null)} className="w-full mt-4 py-2 bg-gray-200 rounded">Tancar</button>
+      </div></div>)}
     </div>
   );
 }

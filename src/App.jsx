@@ -67,12 +67,14 @@ export default function App() {
         note: x.note, car: x.car, km: x.km || 0, kmCost: x.km_cost || 0,
         paid: x.paid || false, paidDate: x.paid_date
       })),
-      payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount })),
+      payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount, locId: x.loc_id, locName: x.loc_name, kmCost: x.km_cost || 0 })),
       availability: (a.data || []).map(x => ({ 
         id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
         migdia: x.migdia, vespre: x.vespre,
         migdiaStatus: x.migdia_status || 'pending',
-        vespreStatus: x.vespre_status || 'pending'
+        vespreStatus: x.vespre_status || 'pending',
+        migdiaLoc: x.migdia_loc || '',
+        vespreLoc: x.vespre_loc || ''
       })),
       nextPin: c.data ? parseInt(c.data.value) : 1041
     });
@@ -87,7 +89,9 @@ export default function App() {
         id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
         migdia: x.migdia, vespre: x.vespre,
         migdiaStatus: x.migdia_status || 'pending',
-        vespreStatus: x.vespre_status || 'pending'
+        vespreStatus: x.vespre_status || 'pending',
+        migdiaLoc: x.migdia_loc || '',
+        vespreLoc: x.vespre_loc || ''
       }))
     }));
   };
@@ -107,7 +111,7 @@ export default function App() {
         note: x.note, car: x.car, km: x.km || 0, kmCost: x.km_cost || 0,
         paid: x.paid || false, paidDate: x.paid_date
       })),
-      payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount }))
+      payments: (p.data || []).map(x => ({ id: x.id, odId: x.od_id, name: x.name, date: x.date, amount: x.amount, locId: x.loc_id, locName: x.loc_name, kmCost: x.km_cost || 0 }))
     }));
   };
 
@@ -120,7 +124,7 @@ export default function App() {
 }
 
 function Menu({ onWorker, onAdmin }) {
-  return (<div className="min-h-screen bg-gray-100 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow p-6 w-full max-w-xs text-center"><h1 className="text-xl font-bold mb-6">Gestió d'Hores</h1><button onClick={onWorker} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold mb-3">Treballador</button><button onClick={onAdmin} className="w-full bg-gray-700 text-white py-4 rounded-lg font-bold">Administrador</button></div></div>);
+  return (<div className="min-h-screen bg-gray-100 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow p-6 w-full max-w-xs text-center"><h1 className="text-xl font-bold mb-6">Gestio d'Hores</h1><button onClick={onWorker} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold mb-3">Treballador</button><button onClick={onAdmin} className="w-full bg-gray-700 text-white py-4 rounded-lg font-bold">Administrador</button></div></div>);
 }
 
 function AdminLogin({ onBack, onOk }) {
@@ -145,7 +149,7 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
   const [form, setForm] = useState({ date: '', locId: '', shift: '', job: '', h1: '', h2: '', h3: '', h4: '', note: '', car: false, km: '' });
   const [delId, setDelId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const jobs = ['Cuina', 'Sala', 'Neteja', 'Producció', 'Muntatge'];
+  const jobs = ['Cuina', 'Sala', 'Neteja', 'Produccio', 'Muntatge'];
   const rests = data.locations.filter(l => l.type === 'restaurant');
   const cats = data.locations.filter(l => l.type === 'catering' && l.active === true);
   const loc = data.locations.find(l => l.id === form.locId);
@@ -331,36 +335,40 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   const calDays = getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth());
   
   const getAvailForDay = (day) => {
-    if (!day) return { migdia: [], vespre: [] };
+    if (!day) return { migdia: [], vespre: [], migdiaCancelled: [], vespreCancelled: [] };
     const dateStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayAvail = data.availability.filter(a => a.date === dateStr);
     return {
       migdia: dayAvail.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
+      vespre: dayAvail.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      migdiaCancelled: dayAvail.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      vespreCancelled: dayAvail.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
     };
   };
 
-  const updateStatus = async (availId, tipo, newStatus) => {
+  const updateStatus = async (availId, tipo, newStatus, newLoc = '') => {
     const updates = tipo === 'migdia' 
-      ? { migdia_status: newStatus } 
-      : { vespre_status: newStatus };
+      ? { migdia_status: newStatus, migdia_loc: newLoc } 
+      : { vespre_status: newStatus, vespre_loc: newLoc };
     await supabase.from('availability').update(updates).eq('id', availId);
     await reloadAvailability();
-    // Actualitzar selectedDay amb les noves dades
+    // Actualitzar selectedDay
     const dateStr = selectedDay.dateStr;
-    const dayAvail = data.availability.filter(a => a.date === dateStr);
-    // Forçar actualització
     const newAvail = await supabase.from('availability').select('*').eq('date', dateStr);
     const newData = (newAvail.data || []).map(x => ({ 
       id: x.id, odId: x.worker_id, name: x.worker_name, date: x.date, 
       migdia: x.migdia, vespre: x.vespre,
       migdiaStatus: x.migdia_status || 'pending',
-      vespreStatus: x.vespre_status || 'pending'
+      vespreStatus: x.vespre_status || 'pending',
+      migdiaLoc: x.migdia_loc || '',
+      vespreLoc: x.vespre_loc || ''
     }));
     setSelectedDay({
       ...selectedDay,
       migdia: newData.filter(a => a.migdia && a.migdiaStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
-      vespre: newData.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
+      vespre: newData.filter(a => a.vespre && a.vespreStatus !== 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      migdiaCancelled: newData.filter(a => a.migdia && a.migdiaStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] })),
+      vespreCancelled: newData.filter(a => a.vespre && a.vespreStatus === 'cancelled').map(a => ({ ...a, firstName: a.name.split(' ')[0] }))
     });
   };
 
@@ -368,6 +376,28 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
     if (status === 'confirmed') return 'bg-green-100 text-green-800';
     return 'bg-yellow-100 text-yellow-800';
   };
+
+  const expCalendar = () => {
+    const year = calMonth.getFullYear();
+    const month = calMonth.getMonth();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    let c = '\uFEFF' + 'DIA;MIGDIA;LLOC M;VESPRE;LLOC V\n';
+    for (let d = 1; d <= lastDay; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayAvail = data.availability.filter(a => a.date === dateStr);
+      const migdiaConfirmed = dayAvail.filter(a => a.migdia && a.migdiaStatus === 'confirmed').map(a => a.name.split(' ')[0]);
+      const vespreConfirmed = dayAvail.filter(a => a.vespre && a.vespreStatus === 'confirmed').map(a => a.name.split(' ')[0]);
+      const migdiaLocs = dayAvail.filter(a => a.migdia && a.migdiaStatus === 'confirmed' && a.migdiaLoc).map(a => a.migdiaLoc);
+      const vespreLocs = dayAvail.filter(a => a.vespre && a.vespreStatus === 'confirmed' && a.vespreLoc).map(a => a.vespreLoc);
+      c += d + ';' + migdiaConfirmed.join(', ') + ';' + [...new Set(migdiaLocs)].join(', ') + ';' + vespreConfirmed.join(', ') + ';' + [...new Set(vespreLocs)].join(', ') + '\n';
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' }));
+    a.download = 'disponibilitat_' + (month + 1) + '_' + year + '.csv';
+    a.click();
+  };
+
+  const allLocs = data.locations.filter(l => l.type === 'restaurant' || (l.type === 'catering' && l.active));
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -386,6 +416,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
               <span className="font-bold">{calMonth.toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span>
               <button onClick={() => setMonthOff(monthOff + 1)} className="px-3 py-1 bg-gray-200 rounded">→</button>
             </div>
+            <button onClick={expCalendar} className="w-full bg-blue-600 text-white py-2 rounded-lg mb-4">Descarregar Excel</button>
             <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2">
               {['Dl', 'Dm', 'Dc', 'Dj', 'Dv', 'Ds', 'Dg'].map(d => <div key={d} className="font-bold text-gray-500">{d}</div>)}
             </div>
@@ -405,7 +436,7 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
                 );
               })}
             </div>
-            <p className="text-xs text-gray-400 mt-3 text-center">Clica un dia per veure i gestionar disponibilitat</p>
+            <p className="text-xs text-gray-400 mt-3 text-center">Clica un dia per gestionar disponibilitat</p>
           </div>
         )}
 
@@ -424,12 +455,31 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
           {selectedDay.migdia.length === 0 ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
             <div className="space-y-2">
               {selectedDay.migdia.map(a => (
-                <div key={a.id} className={`p-2 rounded flex justify-between items-center ${getStatusBg(a.migdiaStatus)}`}>
-                  <span>{a.name}</span>
-                  <div className="flex gap-1">
-                    <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed')} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
-                    <button onClick={() => updateStatus(a.id, 'migdia', 'cancelled')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                <div key={a.id} className={`p-2 rounded ${getStatusBg(a.migdiaStatus)}`}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-medium">{a.name}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => updateStatus(a.id, 'migdia', 'confirmed', a.migdiaLoc)} className={`px-2 py-1 rounded text-xs ${a.migdiaStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button onClick={() => updateStatus(a.id, 'migdia', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                    </div>
                   </div>
+                  {a.migdiaStatus === 'confirmed' && (
+                    <select value={a.migdiaLoc || ''} onChange={(e) => updateStatus(a.id, 'migdia', 'confirmed', e.target.value)} className="w-full p-1 border rounded text-sm mt-1">
+                      <option value="">Lloc...</option>
+                      {allLocs.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {selectedDay.migdiaCancelled && selectedDay.migdiaCancelled.length > 0 && (
+            <div className="mt-3 pt-3 border-t">
+              <p className="text-xs text-gray-500 mb-2">Cancel·lats:</p>
+              {selectedDay.migdiaCancelled.map(a => (
+                <div key={a.id + 'mc'} className="p-2 rounded bg-red-50 text-red-600 flex justify-between items-center mb-1">
+                  <span className="line-through">{a.name}</span>
+                  <button onClick={() => updateStatus(a.id, 'migdia', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
                 </div>
               ))}
             </div>
@@ -440,12 +490,31 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
           {selectedDay.vespre.length === 0 ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
             <div className="space-y-2">
               {selectedDay.vespre.map(a => (
-                <div key={a.id + 'v'} className={`p-2 rounded flex justify-between items-center ${getStatusBg(a.vespreStatus)}`}>
-                  <span>{a.name}</span>
-                  <div className="flex gap-1">
-                    <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed')} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
-                    <button onClick={() => updateStatus(a.id, 'vespre', 'cancelled')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                <div key={a.id + 'v'} className={`p-2 rounded ${getStatusBg(a.vespreStatus)}`}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-medium">{a.name}</span>
+                    <div className="flex gap-1">
+                      <button onClick={() => updateStatus(a.id, 'vespre', 'confirmed', a.vespreLoc)} className={`px-2 py-1 rounded text-xs ${a.vespreStatus === 'confirmed' ? 'bg-green-600 text-white' : 'bg-gray-200'}`}>OK</button>
+                      <button onClick={() => updateStatus(a.id, 'vespre', 'cancelled', '')} className="px-2 py-1 rounded text-xs bg-red-500 text-white">X</button>
+                    </div>
                   </div>
+                  {a.vespreStatus === 'confirmed' && (
+                    <select value={a.vespreLoc || ''} onChange={(e) => updateStatus(a.id, 'vespre', 'confirmed', e.target.value)} className="w-full p-1 border rounded text-sm mt-1">
+                      <option value="">Lloc...</option>
+                      {allLocs.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {selectedDay.vespreCancelled && selectedDay.vespreCancelled.length > 0 && (
+            <div className="mt-3 pt-3 border-t">
+              <p className="text-xs text-gray-500 mb-2">Cancel·lats:</p>
+              {selectedDay.vespreCancelled.map(a => (
+                <div key={a.id + 'vc'} className="p-2 rounded bg-red-50 text-red-600 flex justify-between items-center mb-1">
+                  <span className="line-through">{a.name}</span>
+                  <button onClick={() => updateStatus(a.id, 'vespre', 'pending', '')} className="px-2 py-1 rounded text-xs bg-yellow-400 text-white">Recuperar</button>
                 </div>
               ))}
             </div>

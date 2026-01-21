@@ -276,6 +276,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   const [payConfirm, setPayConfirm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [selectedDay, setSelectedDay] = useState(null);
+  const [addingShift, setAddingShift] = useState(null);
+  const [searchText, setSearchText] = useState('');
   const now = new Date();
   const ws = getMonday(now, off);
   const we = new Date(ws); we.setDate(ws.getDate() + 6); we.setHours(23, 59, 59, 999);
@@ -361,11 +363,55 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
       : { vespre_status: newStatus, vespre_loc: newLoc };
     await supabase.from('availability').update(updates).eq('id', availId);
     const newAvailList = await reloadAvailability();
-    // Actualitzar selectedDay amb les noves dades
     if (selectedDay) {
       setSelectedDay(buildDayData(selectedDay.dateStr, newAvailList));
     }
     setSaving(false);
+  };
+
+  const addWorkerToDay = async (worker, tipo) => {
+    setSaving(true);
+    const dateStr = selectedDay.dateStr;
+    const existing = data.availability.find(a => a.date === dateStr && a.odId === worker.id);
+    
+    if (existing) {
+      const updates = tipo === 'migdia' 
+        ? { migdia: true, migdia_status: 'confirmed', migdia_loc: '' } 
+        : { vespre: true, vespre_status: 'confirmed', vespre_loc: '' };
+      await supabase.from('availability').update(updates).eq('id', existing.id);
+    } else {
+      const newAvail = { 
+        id: Date.now() + '', 
+        worker_id: worker.id, 
+        worker_name: worker.name + ' ' + worker.surname1, 
+        date: dateStr, 
+        migdia: tipo === 'migdia', 
+        vespre: tipo === 'vespre',
+        migdia_status: tipo === 'migdia' ? 'confirmed' : 'pending',
+        vespre_status: tipo === 'vespre' ? 'confirmed' : 'pending',
+        migdia_loc: '',
+        vespre_loc: ''
+      };
+      await supabase.from('availability').insert([newAvail]);
+    }
+    
+    const newAvailList = await reloadAvailability();
+    setSelectedDay(buildDayData(dateStr, newAvailList));
+    setAddingShift(null);
+    setSearchText('');
+    setSaving(false);
+  };
+
+  const getFilteredWorkers = (tipo) => {
+    if (!searchText) return [];
+    const currentIds = tipo === 'migdia' 
+      ? [...selectedDay.migdia, ...selectedDay.migdiaCancelled].map(a => a.odId)
+      : [...selectedDay.vespre, ...selectedDay.vespreCancelled].map(a => a.odId);
+    return sortedWorkers.filter(w => {
+      if (currentIds.includes(w.id)) return false;
+      const fullName = (w.name + ' ' + w.surname1 + ' ' + (w.surname2 || '')).toLowerCase();
+      return fullName.includes(searchText.toLowerCase());
+    });
   };
 
   const getStatusBg = (status) => {
@@ -445,10 +491,43 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
 
       {payConfirm && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full"><h3 className="text-lg font-bold mb-4">Confirmar pagament</h3><p className="mb-2">Pagar a <strong>{payConfirm.worker.name} {payConfirm.worker.surname1}</strong>:</p><p className="text-3xl font-bold text-green-600 mb-4">{payConfirm.total.toFixed(2)}E</p><p className="text-sm text-gray-500 mb-4">Aixo marcara {payConfirm.entries.length} entrades com a pagades.</p><div className="flex gap-2"><button onClick={() => setPayConfirm(null)} className="flex-1 py-2 bg-gray-200 rounded">Cancel·lar</button><button onClick={confirmPay} disabled={saving} className="flex-1 py-2 bg-green-600 text-white rounded font-bold">{saving ? 'Processant...' : 'Confirmar'}</button></div></div></div>)}
 
-      {selectedDay && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">{selectedDay.day} {calMonth.toLocaleDateString('ca-ES', { month: 'long' })}</h3><button onClick={() => setSelectedDay(null)} className="text-gray-500 text-xl">X</button></div>
+      {selectedDay && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full max-h-[80vh] overflow-y-auto"><div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold">{selectedDay.day} {calMonth.toLocaleDateString('ca-ES', { month: 'long' })}</h3><button onClick={() => { setSelectedDay(null); setAddingShift(null); setSearchText(''); }} className="text-gray-500 text-xl">X</button></div>
+        
         <div className="mb-4">
-          <h4 className="font-bold text-yellow-600 mb-2">MIGDIA</h4>
-          {selectedDay.migdia.length === 0 ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="font-bold text-yellow-600">MIGDIA</h4>
+            <button onClick={() => { setAddingShift(addingShift === 'migdia' ? null : 'migdia'); setSearchText(''); }} className="text-xs bg-green-600 text-white px-2 py-1 rounded">+ Afegir</button>
+          </div>
+          {addingShift === 'migdia' && (
+            <div className="mb-2 p-2 bg-gray-50 rounded">
+              <input 
+                type="text" 
+                placeholder="Escriu nom..." 
+                value={searchText} 
+                onChange={e => setSearchText(e.target.value)} 
+                className="w-full p-2 border rounded text-sm mb-2"
+                autoFocus
+              />
+              {getFilteredWorkers('migdia').length > 0 && (
+                <div className="max-h-32 overflow-y-auto">
+                  {getFilteredWorkers('migdia').map(w => (
+                    <button 
+                      key={w.id} 
+                      onClick={() => addWorkerToDay(w, 'migdia')} 
+                      disabled={saving}
+                      className="w-full text-left p-2 hover:bg-green-100 rounded text-sm"
+                    >
+                      {w.name} {w.surname1} {w.surname2}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchText && getFilteredWorkers('migdia').length === 0 && (
+                <p className="text-xs text-gray-400">Cap resultat</p>
+              )}
+            </div>
+          )}
+          {selectedDay.migdia.length === 0 && !addingShift ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
             <div className="space-y-2">
               {selectedDay.migdia.map(a => (
                 <div key={a.id} className={`p-2 rounded ${getStatusBg(a.migdiaStatus)}`}>
@@ -481,9 +560,42 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
             </div>
           )}
         </div>
+
         <div>
-          <h4 className="font-bold text-blue-600 mb-2">VESPRE</h4>
-          {selectedDay.vespre.length === 0 ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="font-bold text-blue-600">VESPRE</h4>
+            <button onClick={() => { setAddingShift(addingShift === 'vespre' ? null : 'vespre'); setSearchText(''); }} className="text-xs bg-green-600 text-white px-2 py-1 rounded">+ Afegir</button>
+          </div>
+          {addingShift === 'vespre' && (
+            <div className="mb-2 p-2 bg-gray-50 rounded">
+              <input 
+                type="text" 
+                placeholder="Escriu nom..." 
+                value={searchText} 
+                onChange={e => setSearchText(e.target.value)} 
+                className="w-full p-2 border rounded text-sm mb-2"
+                autoFocus
+              />
+              {getFilteredWorkers('vespre').length > 0 && (
+                <div className="max-h-32 overflow-y-auto">
+                  {getFilteredWorkers('vespre').map(w => (
+                    <button 
+                      key={w.id} 
+                      onClick={() => addWorkerToDay(w, 'vespre')} 
+                      disabled={saving}
+                      className="w-full text-left p-2 hover:bg-green-100 rounded text-sm"
+                    >
+                      {w.name} {w.surname1} {w.surname2}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchText && getFilteredWorkers('vespre').length === 0 && (
+                <p className="text-xs text-gray-400">Cap resultat</p>
+              )}
+            </div>
+          )}
+          {selectedDay.vespre.length === 0 && !addingShift ? <p className="text-gray-400 text-sm">Ningu disponible</p> : (
             <div className="space-y-2">
               {selectedDay.vespre.map(a => (
                 <div key={a.id + 'v'} className={`p-2 rounded ${getStatusBg(a.vespreStatus)}`}>
@@ -516,7 +628,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
             </div>
           )}
         </div>
-        <button onClick={() => setSelectedDay(null)} className="w-full mt-4 py-2 bg-gray-200 rounded">Tancar</button>
+
+        <button onClick={() => { setSelectedDay(null); setAddingShift(null); setSearchText(''); }} className="w-full mt-4 py-2 bg-gray-200 rounded">Tancar</button>
       </div></div>)}
     </div>
   );

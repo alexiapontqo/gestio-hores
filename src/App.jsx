@@ -16,6 +16,14 @@ const sortWorkers = (workers) => {
   });
 };
 
+const capitalize = (str) => {
+  return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
+
+const getUsername = (worker) => {
+  return capitalize(worker.name) + ' ' + capitalize(worker.surname1);
+};
+
 const getMonday = (d, offset) => {
   const date = new Date(d);
   const day = date.getDay();
@@ -115,9 +123,9 @@ export default function App() {
   };
 
   if (loading) return <div className="p-8 text-center">Carregant...</div>;
-  if (view === 'menu') return <Menu onWorker={() => setView('pin')} onAdmin={() => setView('adminLogin')} />;
+  if (view === 'menu') return <Menu onWorker={() => setView('login')} onAdmin={() => setView('adminLogin')} />;
   if (view === 'adminLogin') return <AdminLogin onBack={() => setView('menu')} onOk={() => setView('admin')} />;
-  if (view === 'pin') return <Pin data={data} onBack={() => setView('menu')} onOk={w => { setUser(w); setView('worker'); }} />;
+  if (view === 'login') return <Login data={data} onBack={() => setView('menu')} onOk={w => { setUser(w); setView('worker'); }} />;
   if (view === 'worker') return <Worker user={user} data={data} reload={loadData} reloadAvailability={reloadAvailability} onOut={() => { setUser(null); setView('menu'); }} />;
   return <Admin data={data} reload={loadData} reloadEntries={reloadEntries} reloadAvailability={reloadAvailability} onOut={() => setView('menu')} />;
 }
@@ -133,11 +141,46 @@ function AdminLogin({ onBack, onOk }) {
   return (<div className="min-h-screen bg-gray-100 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow p-6 w-full max-w-xs"><button onClick={onBack} className="text-gray-500 mb-4">← Tornar</button><h1 className="text-xl font-bold text-center mb-4">Admin</h1><input type="password" placeholder="Contrasenya" value={pass} onChange={e => { setPass(e.target.value); setErr(''); }} className="w-full p-4 border-2 rounded-lg text-center text-xl mb-3" />{err && <p className="text-red-500 text-center mb-3">{err}</p>}<button onClick={go} className="w-full bg-gray-700 text-white py-4 rounded-lg font-bold">Entrar</button></div></div>);
 }
 
-function Pin({ data, onBack, onOk }) {
-  const [pin, setPin] = useState('');
+function Login({ data, onBack, onOk }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
-  const go = () => { const w = data.workers.find(x => x.pin === pin); if (w) onOk(w); else { setErr('PIN incorrecte'); setPin(''); } };
-  return (<div className="min-h-screen bg-gray-100 flex items-center justify-center p-4"><div className="bg-white rounded-xl shadow p-6 w-full max-w-xs"><button onClick={onBack} className="text-gray-500 mb-4">← Tornar</button><h1 className="text-xl font-bold text-center mb-4">PIN</h1><input type="password" inputMode="numeric" value={pin} onChange={e => { setPin(e.target.value); setErr(''); }} className="w-full p-4 border-2 rounded-lg text-center text-2xl mb-3" maxLength="4" />{err && <p className="text-red-500 text-center mb-3">{err}</p>}<button onClick={go} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold">Entrar</button></div></div>);
+  
+  const go = () => { 
+    const w = data.workers.find(x => {
+      const expectedUsername = getUsername(x).toLowerCase();
+      return expectedUsername === username.toLowerCase() && x.pin === password;
+    }); 
+    if (w) onOk(w); 
+    else { setErr('Usuari o contrasenya incorrectes'); setPassword(''); } 
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow p-6 w-full max-w-xs">
+        <button onClick={onBack} className="text-gray-500 mb-4">← Tornar</button>
+        <h1 className="text-xl font-bold text-center mb-4">Entrar</h1>
+        <input 
+          type="text" 
+          placeholder="Usuari (Nom Cognom)" 
+          value={username} 
+          onChange={e => { setUsername(e.target.value); setErr(''); }} 
+          className="w-full p-4 border-2 rounded-lg mb-3" 
+        />
+        <input 
+          type="password" 
+          inputMode="numeric"
+          placeholder="Contrasenya" 
+          value={password} 
+          onChange={e => { setPassword(e.target.value); setErr(''); }} 
+          className="w-full p-4 border-2 rounded-lg mb-3" 
+          maxLength="4"
+        />
+        {err && <p className="text-red-500 text-center mb-3">{err}</p>}
+        <button onClick={go} className="w-full bg-green-600 text-white py-4 rounded-lg font-bold">Entrar</button>
+      </div>
+    </div>
+  );
 }
 
 function Worker({ user, data, reload, reloadAvailability, onOut }) {
@@ -210,7 +253,7 @@ function Worker({ user, data, reload, reloadAvailability, onOut }) {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <div className="bg-green-600 text-white p-4 flex justify-between"><span className="font-bold">{user.name} {user.surname1}</span><button onClick={onOut} className="bg-white text-green-600 px-3 py-1 rounded">Sortir</button></div>
+      <div className="bg-green-600 text-white p-4 flex justify-between"><span className="font-bold">{capitalize(user.name)} {capitalize(user.surname1)}</span><button onClick={onOut} className="bg-white text-green-600 px-3 py-1 rounded">Sortir</button></div>
       <div className="p-3 max-w-md mx-auto">
         <div className="bg-white rounded-lg shadow mb-3 flex">
           <button onClick={() => setTab('hores')} className={`flex-1 py-3 text-sm ${tab === 'hores' ? 'border-b-2 border-green-600 font-bold' : 'text-gray-400'}`}>Hores</button>
@@ -300,7 +343,6 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
     }
   };
   
-  // Pagaments amb filtres
   const getFilteredEntries = () => {
     let filtered = data.entries.filter(e => e.paid);
     if (filterLoc) {
@@ -334,9 +376,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   };
 
   const allLocations = data.locations;
-  const workersWithPayments = [...new Set(data.entries.filter(e => e.paid).map(e => e.odId))].map(id => data.workers.find(w => w.id === id)).filter(Boolean);
   
-  const addW = async () => { if (!nw.n || !nw.s1) return alert('Omple nom i primer cognom'); setSaving(true); const pin = data.nextPin.toString().padStart(4, '0'); await supabase.from('workers').insert([{ id: Date.now() + '', name: nw.n.toUpperCase(), surname1: nw.s1.toUpperCase(), surname2: nw.s2 ? nw.s2.toUpperCase() : '', pin, rate: +nw.r }]); await supabase.from('config').update({ value: (data.nextPin + 1).toString() }).eq('key', 'nextPin'); await reload(); setNw({ n: '', s1: '', s2: '', r: 12 }); alert('PIN: ' + pin); setSaving(false); };
+  const addW = async () => { if (!nw.n || !nw.s1) return alert('Omple nom i primer cognom'); setSaving(true); const pin = data.nextPin.toString().padStart(4, '0'); await supabase.from('workers').insert([{ id: Date.now() + '', name: nw.n.toUpperCase(), surname1: nw.s1.toUpperCase(), surname2: nw.s2 ? nw.s2.toUpperCase() : '', pin, rate: +nw.r }]); await supabase.from('config').update({ value: (data.nextPin + 1).toString() }).eq('key', 'nextPin'); await reload(); setNw({ n: '', s1: '', s2: '', r: 12 }); alert('Usuari: ' + capitalize(nw.n) + ' ' + capitalize(nw.s1) + '\nContrasenya: ' + pin); setSaving(false); };
   const updW = async (id) => { setSaving(true); await supabase.from('workers').update({ name: editWV.n.toUpperCase(), surname1: editWV.s1.toUpperCase(), surname2: editWV.s2 ? editWV.s2.toUpperCase() : '', rate: +editWV.r }).eq('id', id); await reload(); setEditW(null); setSaving(false); };
   const delW = async (id) => { await supabase.from('workers').delete().eq('id', id); await reload(); };
   const addC = async () => { if (!nc.n || !nc.d) return alert('Omple tot'); setSaving(true); await supabase.from('locations').insert([{ id: Date.now() + '', name: nc.n + ' - ' + nc.d, date: nc.d, type: 'catering', active: true }]); await reload(); setNc({ n: '', d: '' }); setSaving(false); };
@@ -369,7 +410,16 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
     a.click(); 
   };
   
-  const expWorkers = () => { let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;PIN;PREU/HORA\n'; sortedWorkers.forEach(w => { c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + w.pin + ';' + w.rate + '\n'; }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'treballadors.csv'; a.click(); };
+  const expWorkers = () => { 
+    let c = '\uFEFF' + 'NOM;COGNOM1;COGNOM2;USUARI;CONTRASENYA;PREU/HORA\n'; 
+    sortedWorkers.forEach(w => { 
+      c += w.name + ';' + w.surname1 + ';' + (w.surname2 || '') + ';' + getUsername(w) + ';' + w.pin + ';' + w.rate + '\n'; 
+    }); 
+    const a = document.createElement('a'); 
+    a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); 
+    a.download = 'treballadors.csv'; 
+    a.click(); 
+  };
 
   const calMonth = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);
   const calDays = getDaysInMonth(calMonth.getFullYear(), calMonth.getMonth());
@@ -521,13 +571,12 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
           </div>
         )}
 
-        {tab === 'treballadors' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-4 space-y-2"><input placeholder="Nom" value={nw.n} onChange={e => setNw({ ...nw, n: e.target.value })} className="w-full p-3 border rounded" /><div className="flex gap-2"><input placeholder="1r cognom" value={nw.s1} onChange={e => setNw({ ...nw, s1: e.target.value })} className="flex-1 p-3 border rounded" /><input placeholder="2n cognom" value={nw.s2} onChange={e => setNw({ ...nw, s2: e.target.value })} className="flex-1 p-3 border rounded" /></div><div className="flex gap-2"><div className="w-24"><label className="text-xs text-gray-500">E/hora</label><input type="number" value={nw.r} onChange={e => setNw({ ...nw, r: e.target.value })} className="w-full p-3 border rounded" /></div><button onClick={addW} disabled={saving} className="flex-1 bg-green-600 text-white p-3 rounded">{saving ? 'Creant...' : 'Crear'}</button></div><button onClick={expWorkers} className="w-full bg-blue-600 text-white py-3 rounded-lg">Descarregar Treballadors</button></div><div className="bg-white rounded-lg shadow divide-y">{sortedWorkers.map(w => (<div key={w.id} className="p-4">{editW === w.id ? (<div className="space-y-2"><input value={editWV.n} onChange={e => setEditWV({ ...editWV, n: e.target.value })} className="w-full p-2 border rounded" placeholder="Nom" /><div className="flex gap-2"><input value={editWV.s1} onChange={e => setEditWV({ ...editWV, s1: e.target.value })} className="flex-1 p-2 border rounded" placeholder="1r cognom" /><input value={editWV.s2} onChange={e => setEditWV({ ...editWV, s2: e.target.value })} className="flex-1 p-2 border rounded" placeholder="2n cognom" /></div><div className="flex gap-2"><input type="number" value={editWV.r} onChange={e => setEditWV({ ...editWV, r: e.target.value })} className="w-20 p-2 border rounded" /><button onClick={() => updW(w.id)} disabled={saving} className="bg-green-600 text-white px-4 py-2 rounded">{saving ? '...' : 'Guardar'}</button><button onClick={() => setEditW(null)} className="bg-gray-200 px-4 py-2 rounded">Cancel</button></div></div>) : (<div className="flex justify-between"><div><p className="font-medium">{w.name} {w.surname1} {w.surname2}</p><p className="text-sm text-gray-500">PIN: {w.pin} - {w.rate}E/h</p></div><div className="flex gap-2"><button onClick={() => { setEditW(w.id); setEditWV({ n: w.name, s1: w.surname1, s2: w.surname2 || '', r: w.rate }); }} className="text-blue-500">Editar</button><button onClick={() => delW(w.id)} className="text-red-500">Elim</button></div></div>)}</div>))}</div></div>)}
+        {tab === 'treballadors' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-4 space-y-2"><input placeholder="Nom" value={nw.n} onChange={e => setNw({ ...nw, n: e.target.value })} className="w-full p-3 border rounded" /><div className="flex gap-2"><input placeholder="1r cognom" value={nw.s1} onChange={e => setNw({ ...nw, s1: e.target.value })} className="flex-1 p-3 border rounded" /><input placeholder="2n cognom" value={nw.s2} onChange={e => setNw({ ...nw, s2: e.target.value })} className="flex-1 p-3 border rounded" /></div><div className="flex gap-2"><div className="w-24"><label className="text-xs text-gray-500">E/hora</label><input type="number" value={nw.r} onChange={e => setNw({ ...nw, r: e.target.value })} className="w-full p-3 border rounded" /></div><button onClick={addW} disabled={saving} className="flex-1 bg-green-600 text-white p-3 rounded">{saving ? 'Creant...' : 'Crear'}</button></div><button onClick={expWorkers} className="w-full bg-blue-600 text-white py-3 rounded-lg">Descarregar Treballadors</button></div><div className="bg-white rounded-lg shadow divide-y">{sortedWorkers.map(w => (<div key={w.id} className="p-4">{editW === w.id ? (<div className="space-y-2"><input value={editWV.n} onChange={e => setEditWV({ ...editWV, n: e.target.value })} className="w-full p-2 border rounded" placeholder="Nom" /><div className="flex gap-2"><input value={editWV.s1} onChange={e => setEditWV({ ...editWV, s1: e.target.value })} className="flex-1 p-2 border rounded" placeholder="1r cognom" /><input value={editWV.s2} onChange={e => setEditWV({ ...editWV, s2: e.target.value })} className="flex-1 p-2 border rounded" placeholder="2n cognom" /></div><div className="flex gap-2"><input type="number" value={editWV.r} onChange={e => setEditWV({ ...editWV, r: e.target.value })} className="w-20 p-2 border rounded" /><button onClick={() => updW(w.id)} disabled={saving} className="bg-green-600 text-white px-4 py-2 rounded">{saving ? '...' : 'Guardar'}</button><button onClick={() => setEditW(null)} className="bg-gray-200 px-4 py-2 rounded">Cancel</button></div></div>) : (<div className="flex justify-between"><div><p className="font-medium">{w.name} {w.surname1} {w.surname2}</p><p className="text-sm text-gray-500">Usuari: {getUsername(w)} - {w.rate}E/h</p></div><div className="flex gap-2"><button onClick={() => { setEditW(w.id); setEditWV({ n: w.name, s1: w.surname1, s2: w.surname2 || '', r: w.rate }); }} className="text-blue-500">Editar</button><button onClick={() => delW(w.id)} className="text-red-500">Elim</button></div></div>)}</div>))}</div></div>)}
 
         {tab === 'caterings' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-4 space-y-2"><input placeholder="Nom" value={nc.n} onChange={e => setNc({ ...nc, n: e.target.value })} className="w-full p-3 border rounded" /><div className="flex gap-2"><input type="date" value={nc.d} onChange={e => setNc({ ...nc, d: e.target.value })} className="flex-1 p-3 border rounded" /><button onClick={addC} disabled={saving} className="bg-green-600 text-white px-6 rounded">{saving ? '...' : '+'}</button></div></div><div className="bg-white rounded-lg shadow divide-y">{data.locations.filter(l => l.type === 'restaurant').map(l => (<div key={l.id} className="p-4 flex justify-between"><span>{l.name}</span><span className="text-green-600 text-sm">Restaurant</span></div>))}{data.locations.filter(l => l.type === 'catering').map(c => (<div key={c.id} className="p-4 flex justify-between"><span>{c.name}</span><div className="flex gap-2"><button onClick={() => toggleLoc(c.id, c.active)} className={`px-2 py-1 rounded text-xs ${c.active ? 'bg-green-100 text-green-700' : 'bg-gray-200'}`}>{c.active ? 'On' : 'Off'}</button><button onClick={() => delLoc(c.id)} className="text-red-500 text-xs">Elim</button></div></div>))}</div></div>)}
 
         {tab === 'pagaments' && (
           <div className="space-y-3">
-            {/* Filtres */}
             <div className="bg-white rounded-lg shadow p-4 space-y-3">
               <h3 className="font-bold text-sm">Filtres</h3>
               <div className="grid grid-cols-2 gap-2">
@@ -545,7 +594,6 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
               )}
             </div>
 
-            {/* Totals */}
             <div className="bg-white rounded-lg shadow p-4">
               <h3 className="font-bold text-sm mb-3">Resum{(filterLoc || filterWorker) && ' (filtrat)'}</h3>
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -565,7 +613,6 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
               <p className="text-xs text-gray-400 mt-2 text-center">{stats.count} entrades - {stats.totalHores}h</p>
             </div>
 
-            {/* Llista per mes */}
             {paymentsByMonth().length === 0 ? (
               <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">No hi ha pagaments registrats</div>
             ) : (

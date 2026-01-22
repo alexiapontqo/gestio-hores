@@ -278,6 +278,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [addingShift, setAddingShift] = useState(null);
   const [searchText, setSearchText] = useState('');
+  const [filterLoc, setFilterLoc] = useState('');
+  const [filterWorker, setFilterWorker] = useState('');
   const now = new Date();
   const ws = getMonday(now, off);
   const we = new Date(ws); we.setDate(ws.getDate() + 6); we.setHours(23, 59, 59, 999);
@@ -298,7 +300,42 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
     }
   };
   
-  const paymentsByMonth = () => { const g = {}; data.payments.forEach(p => { const key = p.date.substring(0, 7); if (!g[key]) g[key] = { payments: [], total: 0 }; g[key].payments.push(p); g[key].total += p.amount; }); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); };
+  // Pagaments amb filtres
+  const getFilteredEntries = () => {
+    let filtered = data.entries.filter(e => e.paid);
+    if (filterLoc) {
+      filtered = filtered.filter(e => e.locId === filterLoc);
+    }
+    if (filterWorker) {
+      filtered = filtered.filter(e => e.odId === filterWorker);
+    }
+    return filtered;
+  };
+
+  const getPaymentStats = () => {
+    const filtered = getFilteredEntries();
+    const totalSous = filtered.reduce((s, e) => s + (e.total || 0) + (e.plus || 0), 0);
+    const totalKm = filtered.reduce((s, e) => s + (e.kmCost || 0), 0);
+    const totalHores = filtered.reduce((s, e) => s + (e.hours || 0), 0);
+    return { totalSous, totalKm, total: totalSous + totalKm, totalHores, count: filtered.length };
+  };
+
+  const paymentsByMonth = () => { 
+    const filtered = getFilteredEntries();
+    const g = {}; 
+    filtered.forEach(e => { 
+      const key = e.paidDate ? e.paidDate.substring(0, 7) : e.date.substring(0, 7); 
+      if (!g[key]) g[key] = { entries: [], totalSous: 0, totalKm: 0 }; 
+      g[key].entries.push(e); 
+      g[key].totalSous += (e.total || 0) + (e.plus || 0);
+      g[key].totalKm += (e.kmCost || 0);
+    }); 
+    return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); 
+  };
+
+  const allLocations = data.locations;
+  const workersWithPayments = [...new Set(data.entries.filter(e => e.paid).map(e => e.odId))].map(id => data.workers.find(w => w.id === id)).filter(Boolean);
+  
   const addW = async () => { if (!nw.n || !nw.s1) return alert('Omple nom i primer cognom'); setSaving(true); const pin = data.nextPin.toString().padStart(4, '0'); await supabase.from('workers').insert([{ id: Date.now() + '', name: nw.n.toUpperCase(), surname1: nw.s1.toUpperCase(), surname2: nw.s2 ? nw.s2.toUpperCase() : '', pin, rate: +nw.r }]); await supabase.from('config').update({ value: (data.nextPin + 1).toString() }).eq('key', 'nextPin'); await reload(); setNw({ n: '', s1: '', s2: '', r: 12 }); alert('PIN: ' + pin); setSaving(false); };
   const updW = async (id) => { setSaving(true); await supabase.from('workers').update({ name: editWV.n.toUpperCase(), surname1: editWV.s1.toUpperCase(), surname2: editWV.s2 ? editWV.s2.toUpperCase() : '', rate: +editWV.r }).eq('id', id); await reload(); setEditW(null); setSaving(false); };
   const delW = async (id) => { await supabase.from('workers').delete().eq('id', id); await reload(); };
@@ -441,6 +478,8 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
 
   const allLocs = data.locations.filter(l => l.type === 'restaurant' || (l.type === 'catering' && l.active));
 
+  const stats = getPaymentStats();
+
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="bg-gray-700 text-white p-4 flex justify-between"><span className="font-bold">Admin</span><button onClick={onOut} className="bg-white text-gray-700 px-3 py-1 rounded">Sortir</button></div>
@@ -486,7 +525,85 @@ function Admin({ data, reload, reloadEntries, reloadAvailability, onOut }) {
 
         {tab === 'caterings' && (<div className="space-y-3"><div className="bg-white rounded-lg shadow p-4 space-y-2"><input placeholder="Nom" value={nc.n} onChange={e => setNc({ ...nc, n: e.target.value })} className="w-full p-3 border rounded" /><div className="flex gap-2"><input type="date" value={nc.d} onChange={e => setNc({ ...nc, d: e.target.value })} className="flex-1 p-3 border rounded" /><button onClick={addC} disabled={saving} className="bg-green-600 text-white px-6 rounded">{saving ? '...' : '+'}</button></div></div><div className="bg-white rounded-lg shadow divide-y">{data.locations.filter(l => l.type === 'restaurant').map(l => (<div key={l.id} className="p-4 flex justify-between"><span>{l.name}</span><span className="text-green-600 text-sm">Restaurant</span></div>))}{data.locations.filter(l => l.type === 'catering').map(c => (<div key={c.id} className="p-4 flex justify-between"><span>{c.name}</span><div className="flex gap-2"><button onClick={() => toggleLoc(c.id, c.active)} className={`px-2 py-1 rounded text-xs ${c.active ? 'bg-green-100 text-green-700' : 'bg-gray-200'}`}>{c.active ? 'On' : 'Off'}</button><button onClick={() => delLoc(c.id)} className="text-red-500 text-xs">Elim</button></div></div>))}</div></div>)}
 
-        {tab === 'pagaments' && (<div className="space-y-3">{paymentsByMonth().length === 0 ? (<div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">No hi ha pagaments registrats</div>) : (paymentsByMonth().map(([monthKey, { payments, total }]) => (<div key={monthKey} className="bg-white rounded-lg shadow overflow-hidden"><div className="p-3 bg-gray-700 text-white flex justify-between"><span className="font-bold">{new Date(monthKey + '-01').toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span><span className="font-bold text-green-300">{total.toFixed(2)}E</span></div>{payments.map(p => (<div key={p.id} className="p-3 border-b flex justify-between items-center"><div><span className="text-gray-500 text-sm">{fmtDate(p.date)}</span><span className="ml-2 font-medium">{p.name}</span></div><span className="font-bold text-green-600">{p.amount.toFixed(2)}E</span></div>))}</div>)))}</div>)}
+        {tab === 'pagaments' && (
+          <div className="space-y-3">
+            {/* Filtres */}
+            <div className="bg-white rounded-lg shadow p-4 space-y-3">
+              <h3 className="font-bold text-sm">Filtres</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <select value={filterLoc} onChange={e => setFilterLoc(e.target.value)} className="p-2 border rounded text-sm">
+                  <option value="">Tots els llocs</option>
+                  {allLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                <select value={filterWorker} onChange={e => setFilterWorker(e.target.value)} className="p-2 border rounded text-sm">
+                  <option value="">Tots els treballadors</option>
+                  {sortedWorkers.map(w => <option key={w.id} value={w.id}>{w.name} {w.surname1}</option>)}
+                </select>
+              </div>
+              {(filterLoc || filterWorker) && (
+                <button onClick={() => { setFilterLoc(''); setFilterWorker(''); }} className="text-sm text-blue-600">Netejar filtres</button>
+              )}
+            </div>
+
+            {/* Totals */}
+            <div className="bg-white rounded-lg shadow p-4">
+              <h3 className="font-bold text-sm mb-3">Resum{(filterLoc || filterWorker) && ' (filtrat)'}</h3>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-green-50 p-3 rounded">
+                  <p className="text-xs text-gray-500">Sous</p>
+                  <p className="font-bold text-green-600">{stats.totalSous.toFixed(2)}E</p>
+                </div>
+                <div className="bg-orange-50 p-3 rounded">
+                  <p className="text-xs text-gray-500">Gasolina</p>
+                  <p className="font-bold text-orange-600">{stats.totalKm.toFixed(2)}E</p>
+                </div>
+                <div className="bg-gray-100 p-3 rounded">
+                  <p className="text-xs text-gray-500">Total</p>
+                  <p className="font-bold text-gray-700">{stats.total.toFixed(2)}E</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2 text-center">{stats.count} entrades - {stats.totalHores}h</p>
+            </div>
+
+            {/* Llista per mes */}
+            {paymentsByMonth().length === 0 ? (
+              <div className="bg-white rounded-lg shadow p-6 text-center text-gray-400">No hi ha pagaments registrats</div>
+            ) : (
+              paymentsByMonth().map(([monthKey, { entries, totalSous, totalKm }]) => (
+                <div key={monthKey} className="bg-white rounded-lg shadow overflow-hidden">
+                  <div className="p-3 bg-gray-700 text-white">
+                    <div className="flex justify-between">
+                      <span className="font-bold">{new Date(monthKey + '-01').toLocaleDateString('ca-ES', { month: 'long', year: 'numeric' })}</span>
+                      <span className="font-bold text-green-300">{(totalSous + totalKm).toFixed(2)}E</span>
+                    </div>
+                    <div className="flex justify-between text-xs mt-1 text-gray-300">
+                      <span>Sous: {totalSous.toFixed(2)}E</span>
+                      <span>Gasolina: {totalKm.toFixed(2)}E</span>
+                    </div>
+                  </div>
+                  {entries.slice(0, 10).map(e => (
+                    <div key={e.id} className="p-3 border-b flex justify-between items-center">
+                      <div>
+                        <span className="text-gray-500 text-sm">{fmtDate(e.date)}</span>
+                        <span className="ml-2 font-medium">{e.name}</span>
+                        <span className="ml-2 text-xs text-gray-400">{e.locName}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-green-600">{((e.total || 0) + (e.plus || 0)).toFixed(2)}E</span>
+                        {e.kmCost > 0 && <span className="ml-2 text-orange-500 text-sm">+{e.kmCost.toFixed(2)}E km</span>}
+                      </div>
+                    </div>
+                  ))}
+                  {entries.length > 10 && (
+                    <div className="p-2 text-center text-xs text-gray-400">
+                      ... i {entries.length - 10} mes
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {payConfirm && (<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full"><h3 className="text-lg font-bold mb-4">Confirmar pagament</h3><p className="mb-2">Pagar a <strong>{payConfirm.worker.name} {payConfirm.worker.surname1}</strong>:</p><p className="text-3xl font-bold text-green-600 mb-4">{payConfirm.total.toFixed(2)}E</p><p className="text-sm text-gray-500 mb-4">Aixo marcara {payConfirm.entries.length} entrades com a pagades.</p><div className="flex gap-2"><button onClick={() => setPayConfirm(null)} className="flex-1 py-2 bg-gray-200 rounded">Cancel·lar</button><button onClick={confirmPay} disabled={saving} className="flex-1 py-2 bg-green-600 text-white rounded font-bold">{saving ? 'Processant...' : 'Confirmar'}</button></div></div></div>)}

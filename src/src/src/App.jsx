@@ -301,6 +301,8 @@ function Admin({ data, save, reload, onOut }) {
   const [editW, setEditW] = useState(null);
   const [editWV, setEditWV] = useState({});
   const [saving, setSaving] = useState(false);
+  const [expFrom, setExpFrom] = useState('');
+  const [expTo, setExpTo] = useState('');
 
   const now = new Date();
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay() + 1 + off * 7);
@@ -319,6 +321,101 @@ function Admin({ data, save, reload, onOut }) {
   const sortedWorkers = sortWorkers(data.workers);
   const byW = sortedWorkers.map(w => ({ w, ent: ents.filter(e => e.odId === w.id) })).filter(x => x.ent.length);
   const byL = data.locations.map(l => ({ l, ent: ents.filter(e => e.locId === l.id) })).filter(x => x.ent.length);
+
+  const getExpEnts = () => {
+    if (!expFrom || !expTo) return ents;
+    return data.entries.filter(e => e.date >= expFrom && e.date <= expTo);
+  };
+
+  const shiftLabel = s => ({ migdia: 'Migdia', vespre: 'Vespre', both: 'Migdia+Vespre', extra: 'Hores extres' }[s] || '-');
+
+  const expPerPersona = () => {
+    const SheetJS = window.XLSX;
+    if (!SheetJS) return alert('SheetJS no disponible');
+    const ee = getExpEnts();
+    const wb = SheetJS.utils.book_new();
+    const workers = sortWorkers(data.workers.filter(w => ee.some(e => e.odId === w.id)));
+    workers.forEach(w => {
+      const wents = ee.filter(e => e.odId === w.id).sort((a, b) => a.date.localeCompare(b.date));
+      const byLoc = {};
+      wents.forEach(e => { if (!byLoc[e.locName]) byLoc[e.locName] = []; byLoc[e.locName].push(e); });
+      const rows = [];
+      rows.push([`${w.name} ${w.surname1} ${w.surname2 || ''}`.trim()]);
+      rows.push(['Data', 'Lloc', 'Torn', 'Feina', 'Horari', 'Hores', '€/hora', 'Km', 'Cost km', 'Nota', 'Total €']);
+      Object.entries(byLoc).forEach(([loc, lents]) => {
+        lents.forEach(e => {
+          rows.push([
+            e.date,
+            e.locName,
+            shiftLabel(e.shift),
+            e.job || '-',
+            e.horari || (e.horaIn + '-' + e.horaOut),
+            e.hours,
+            e.customRate || e.rate,
+            e.km || 0,
+            e.kmCost ? +e.kmCost.toFixed(2) : 0,
+            e.note || '',
+            +calc(e).toFixed(2)
+          ]);
+        });
+        const sub = lents.reduce((s, e) => s + calc(e), 0);
+        rows.push(['', 'Subtotal ' + loc, '', '', '', '', '', '', '', '', +sub.toFixed(2)]);
+        rows.push([]);
+      });
+      const total = wents.reduce((s, e) => s + calc(e), 0);
+      rows.push(['', '', '', '', '', '', '', '', '', 'TOTAL', +total.toFixed(2)]);
+      const ws2 = SheetJS.utils.aoa_to_sheet(rows);
+      ws2['!cols'] = [12, 18, 16, 12, 16, 7, 7, 6, 8, 20, 10].map(w => ({ wch: w }));
+      const sname = (w.name + ' ' + w.surname1).slice(0, 31).replace(/[:\\\/\?\*\[\]]/g, '');
+      SheetJS.utils.book_append_sheet(wb, ws2, sname);
+    });
+    const periode = expFrom && expTo ? `${expFrom}_${expTo}` : (period === 'setmana' ? `setmana` : `mes`);
+    SheetJS.writeFile(wb, `hores_per_persona_${periode}.xlsx`);
+  };
+
+  const expPerLloc = () => {
+    const SheetJS = window.XLSX;
+    if (!SheetJS) return alert('SheetJS no disponible');
+    const ee = getExpEnts();
+    const wb = SheetJS.utils.book_new();
+    const locs = data.locations.filter(l => ee.some(e => e.locId === l.id));
+    locs.forEach(l => {
+      const lents = ee.filter(e => e.locId === l.id).sort((a, b) => a.date.localeCompare(b.date));
+      const byWorker = {};
+      lents.forEach(e => { if (!byWorker[e.name]) byWorker[e.name] = []; byWorker[e.name].push(e); });
+      const rows = [];
+      rows.push([l.name]);
+      rows.push(['Data', 'Treballador', 'Torn', 'Feina', 'Horari', 'Hores', '€/hora', 'Km', 'Cost km', 'Nota', 'Total €']);
+      Object.entries(byWorker).forEach(([nom, wents]) => {
+        wents.forEach(e => {
+          rows.push([
+            e.date,
+            e.name,
+            shiftLabel(e.shift),
+            e.job || '-',
+            e.horari || (e.horaIn + '-' + e.horaOut),
+            e.hours,
+            e.customRate || e.rate,
+            e.km || 0,
+            e.kmCost ? +e.kmCost.toFixed(2) : 0,
+            e.note || '',
+            +calc(e).toFixed(2)
+          ]);
+        });
+        const sub = wents.reduce((s, e) => s + calc(e), 0);
+        rows.push(['', 'Subtotal ' + nom, '', '', '', '', '', '', '', '', +sub.toFixed(2)]);
+        rows.push([]);
+      });
+      const total = lents.reduce((s, e) => s + calc(e), 0);
+      rows.push(['', '', '', '', '', '', '', '', '', 'TOTAL', +total.toFixed(2)]);
+      const ws2 = SheetJS.utils.aoa_to_sheet(rows);
+      ws2['!cols'] = [12, 18, 16, 12, 16, 7, 7, 6, 8, 20, 10].map(w => ({ wch: w }));
+      const sname = l.name.slice(0, 31).replace(/[:\\\/\?\*\[\]]/g, '');
+      SheetJS.utils.book_append_sheet(wb, ws2, sname);
+    });
+    const periode = expFrom && expTo ? `${expFrom}_${expTo}` : (period === 'setmana' ? `setmana` : `mes`);
+    SheetJS.writeFile(wb, `hores_per_lloc_${periode}.xlsx`);
+  };
 
   const addW = async () => {
     if (!nw.n || !nw.s1) return alert('Omple nom i primer cognom');
@@ -365,12 +462,6 @@ function Admin({ data, save, reload, onOut }) {
     await reload();
   };
 
-  const exp = () => {
-    let c = '\uFEFF' + 'LLOC;NOM;DATA;HORES;TOTAL\n';
-    ents.forEach(e => { c += e.locName + ';' + e.name + ';' + e.date + ';' + e.hours + ';' + calc(e).toFixed(2) + '\n'; });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([c], { type: 'text/csv' })); a.download = 'hores.csv'; a.click();
-  };
-
   const del = async (id) => {
     await supabase.from('entries').delete().eq('id', id);
     await reload();
@@ -413,7 +504,25 @@ function Admin({ data, save, reload, onOut }) {
               <button onClick={() => setBy('worker')} className={`flex-1 py-2 rounded text-sm ${by === 'worker' ? 'bg-gray-700 text-white' : 'bg-gray-200'}`}>Treballador</button>
               <button onClick={() => setBy('lloc')} className={`flex-1 py-2 rounded text-sm ${by === 'lloc' ? 'bg-gray-700 text-white' : 'bg-gray-200'}`}>Lloc</button>
             </div>
-            <button onClick={exp} className="w-full bg-green-600 text-white py-3 rounded-lg">📥 CSV</button>
+
+            <div className="border-t pt-3 space-y-2">
+              <p className="text-xs text-gray-500 font-medium">Exportar Excel</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500">Des de</label>
+                  <input type="date" value={expFrom} onChange={e => setExpFrom(e.target.value)} className="w-full p-2 border rounded text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Fins a</label>
+                  <input type="date" value={expTo} onChange={e => setExpTo(e.target.value)} className="w-full p-2 border rounded text-sm" />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 text-center">Si no tries dates, exporta el període seleccionat</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={expPerPersona} className="bg-green-600 text-white py-3 rounded-lg text-sm font-medium">👤 Per persona</button>
+                <button onClick={expPerLloc} className="bg-blue-600 text-white py-3 rounded-lg text-sm font-medium">📍 Per lloc</button>
+              </div>
+            </div>
           </div>
 
           {by === 'worker' && byW.map(({ w, ent }) => (
